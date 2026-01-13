@@ -1,0 +1,6 @@
+[submodule "components/sx127x"]
+	path = components/sx127x
+	url = https://github.com/dernasherbrezon/sx127x.git
+[submodule "components/oled_ssd1306"]
+	path = components/oled_ssd1306
+	url = https://github.com/nopnop2002/esp-idf-ssd1306.git
