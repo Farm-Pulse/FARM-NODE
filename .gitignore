@@ -38,7 +38,7 @@ sdkconfig
 **/components/.idf/
 
 # Ignore everything inside components except submodules and your custom lora driver
-components/*
+#components/*
 !components/lora/
 !components/lora/**
 !components/lora/.git
