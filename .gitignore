@@ -36,7 +36,13 @@ sdkconfig
 # For older versions or manual component management
 /components/.idf/
 **/components/.idf/
-components/*/
+
+# Ignore everything inside components except submodules and your custom lora driver
+components/*
+!components/lora/
+!components/lora/**
+!components/lora/.git
+# If you want to still ignore other submodules, keep their .git tracked
 !components/**/.git
 # For modern ESP-IDF component manager
 managed_components/
@@ -67,6 +73,7 @@ env/
 .clangd/
 .ccls-cache/
 compile_commands.json
+.clangd
 
 # Windows specific
 Thumbs.db

@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "lora.c"
+        "esp_utils.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        sx127x
+        driver
+)
