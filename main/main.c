@@ -4,4 +4,5 @@
 void app_main(void) {
     ESP_LOGI("main", "Farm-Node starting...");
     lora_init();
+    
 }
