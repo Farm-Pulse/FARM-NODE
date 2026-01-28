@@ -83,7 +83,7 @@ void lora_init(void)
     ESP_ERROR_CHECK(sx127x_set_frequency(TEST_FREQUENCY, &device));
     ESP_ERROR_CHECK(sx127x_lora_reset_fifo(&device));
     ESP_ERROR_CHECK(sx127x_lora_set_bandwidth(SX127X_BW_125000, &device));
-    ESP_ERROR_CHECK(sx127x_lora_set_spreading_factor(SX127X_SF_10, &device));
+    ESP_ERROR_CHECK(sx127x_lora_set_spreading_factor(SX127X_SF_9, &device));
     ESP_ERROR_CHECK(sx127x_lora_set_syncword(0x12, &device));
     ESP_ERROR_CHECK(sx127x_set_preamble_length(8, &device));
 
