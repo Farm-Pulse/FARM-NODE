@@ -2266,6 +2266,30 @@ CONFIG_WIFI_PROV_STA_ALL_CHANNEL_SCAN=y
 # end of Wi-Fi Provisioning Manager
 
 #
+# FarmPulse RF-Stack
+#
+CONFIG_FARMPULSE_NODE_ID=1
+CONFIG_FARMPULSE_NETWORK_ID=0xA1B2
+
+#
+# LoRa Radio Parameters
+#
+CONFIG_LORA_FREQUENCY_HZ=865000000
+CONFIG_LORA_SF=9
+CONFIG_LORA_BW_INDEX=7
+# end of LoRa Radio Parameters
+
+#
+# Mesh Timing & Reliability
+#
+CONFIG_MESH_HEARTBEAT_INTERVAL_MS=300000
+CONFIG_MESH_ACK_TIMEOUT_MS=2000
+CONFIG_MESH_MAX_RETRIES=3
+CONFIG_MESH_MAX_HOPS=10
+# end of Mesh Timing & Reliability
+# end of FarmPulse RF-Stack
+
+#
 # sx127x
 #
 # CONFIG_SX127X_DISABLE_SPI_CACHE is not set
