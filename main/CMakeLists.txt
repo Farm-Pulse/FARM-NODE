@@ -4,5 +4,5 @@ idf_component_register(
     INCLUDE_DIRS
         "."
     REQUIRES
-        lora nvs_flash driver esp_timer
+        lora nvs_flash driver esp_timer sensors
 ) 

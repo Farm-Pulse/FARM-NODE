@@ -9,6 +9,7 @@
 #include "mac_layer.h"
 #include "network_layer.h"
 #include "farmpulse_defs.h"
+#include "zmpt101b.h"
 
 static const char *TAG = "APP_MAIN";
 
@@ -79,15 +80,21 @@ void application_task(void *arg) {
         // --- NODE LOGIC ---
         else {
             // Simulate Reading Sensors
-            sensor_data_t my_data;
-            my_data.voltage_R = 230 + (counter % 10);
-            my_data.voltage_Y = 228;
-            my_data.voltage_B = 232;
-            my_data.current_R = 15 + (motor_state * 50); // Higher current if motor is ON
-            my_data.current_Y = 14 + (motor_state * 50);
-            my_data.current_B = 16 + (motor_state * 50);
-            my_data.power_active = 1500 + (motor_state * 5000);
-            my_data.motor_status = motor_state;
+            // sensor_data_t my_data;
+            // my_data.voltage_R = 230 + (counter % 10);
+            // my_data.voltage_Y = 228;
+            // my_data.voltage_B = 232;
+            // my_data.current_R = 15 + (motor_state * 50); // Higher current if motor is ON
+            // my_data.current_Y = 14 + (motor_state * 50);
+            // my_data.current_B = 16 + (motor_state * 50);
+            // my_data.power_active = 1500 + (motor_state * 5000);
+            // my_data.motor_status = motor_state;
+
+            float vr, vy, vb;
+            zmpt_read_all(&vr, &vy, &vb);
+            my_data.voltage_R = (uint16_t)vr;
+            my_data.voltage_Y = (uint16_t)vy;
+            my_data.voltage_B = (uint16_t)vb;
 
             ESP_LOGI(TAG, "Node %d: Sending 3-Phase Data (Motor: %s)...", 
                      MY_NODE_ID, motor_state ? "ON" : "OFF");
@@ -100,12 +107,17 @@ void application_task(void *arg) {
 }
 
 void app_main(void) {
+    //Initializing the Flash memory
     esp_err_t ret = nvs_flash_init();
+
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    //Initializing the ZMPT101B sensor
+    zmpt_init();
 
     ESP_LOGI(TAG, "==========================================");
     ESP_LOGI(TAG, "   FARMPULSE PHASE-3 - Node ID: %d", MY_NODE_ID);
