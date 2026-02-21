@@ -20,10 +20,33 @@ typedef enum {
     PKT_TYPE_FAULT      = 0x09  // Jamming / Sensor Failure
 } packet_type_t;
 
+// --- Command IDs (Payload[0] for PKT_TYPE_CMD) ---
+typedef enum {
+    CMD_MOTOR_OFF = 0x00,
+    CMD_MOTOR_ON  = 0x01,
+    CMD_RESET     = 0xFF
+} command_id_t;
+
+// --- 3-Phase Sensor Data Structure (20 Bytes) ---
+// We use 'packed' to send this struct directly over LoRa
+#pragma pack(push, 1)
+typedef struct {
+    uint16_t voltage_R;  // Volts (e.g., 230)
+    uint16_t voltage_Y;
+    uint16_t voltage_B;
+    uint16_t current_R;  // Amps * 10 (e.g., 15 -> 1.5A)
+    uint16_t current_Y;
+    uint16_t current_B;
+    uint32_t power_active; // Watts
+    uint16_t frequency;    // Hz * 10 (e.g., 500 -> 50.0Hz)
+    uint8_t  motor_status; // 1=ON, 0=OFF
+    uint8_t  reserved;
+} sensor_data_t;
+
 // --- Frame Control Flags ---
 // Bit 7-6: EHO (Extended Header)
 // Bit 5:   Encryption
-// Bit 4:   Ack Request
+// Bit 4:   Ack Requestidf.py
 // Bit 3-0: Packet Type
 #define FCF_MASK_EHO        0xC0
 #define FCF_MASK_ENC        0x20

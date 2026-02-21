@@ -55,4 +55,6 @@ void network_handle_packet(farm_packet_t *packet, int8_t rssi);
  */
 bool network_send(uint8_t dest_id, packet_type_t type, uint8_t *payload, uint8_t len);
 
+typedef void (*network_receive_cb_t)(uint8_t src_id, uint8_t type, uint8_t *data, uint8_t len);
+void network_register_cb(network_receive_cb_t cb);
 #endif // NETWORK_H
