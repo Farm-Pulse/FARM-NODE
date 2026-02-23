@@ -80,7 +80,7 @@ void application_task(void *arg) {
         // --- NODE LOGIC ---
         else {
             // Simulate Reading Sensors
-            // sensor_data_t my_data;
+            sensor_data_t my_data;
             // my_data.voltage_R = 230 + (counter % 10);
             // my_data.voltage_Y = 228;
             // my_data.voltage_B = 232;
