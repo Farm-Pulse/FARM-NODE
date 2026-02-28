@@ -9,157 +9,128 @@
 #include "mac_layer.h"
 
 static const char *TAG = "NETWORK";
-
 #define BROADCAST_ID 0xFF
 
-// --- Internal State ---
+// --- EmSave Thresholds ---
+#define RSSI_THRESHOLD_PEER   -90  // Ignore LCs weaker than -90 dBm
+#define RSSI_THRESHOLD_MASTER -80  // Ignore Master weaker than -80 dBm
+
 static neighbor_entry_t neighbor_table[NEIGHBOR_TABLE_SIZE];
 static uint8_t my_node_id = CONFIG_FARMPULSE_NODE_ID;
-static uint8_t current_seq_num = 0;
+static uint8_t current_seq_num = 1; // EmSave standard starts at 1
 
-// --- Reliability State (Phase 4 Additions) ---
 static SemaphoreHandle_t ack_wait_sem = NULL;
-static SemaphoreHandle_t tx_pipeline_mutex = NULL; // Prevents multiple tasks from sending at once
+static SemaphoreHandle_t tx_pipeline_mutex = NULL; 
 static uint8_t expected_ack_seq = 0;
 static uint8_t expected_ack_from = 0;
 static bool is_waiting_for_ack = false;
 
-// --- Application Callback Pointer ---
 static network_receive_cb_t app_rx_cb = NULL;
 
-void network_register_cb(network_receive_cb_t cb) {
-    app_rx_cb = cb;
-}
+void network_register_cb(network_receive_cb_t cb) { app_rx_cb = cb; }
 
-static uint32_t millis() {
-    return (uint32_t)(esp_timer_get_time() / 1000);
-}
+static uint32_t millis() { return (uint32_t)(esp_timer_get_time() / 1000); }
 
 void network_init(void) {
-    ESP_LOGI(TAG, "Initializing Network Layer (Phase 4). My ID: %d", my_node_id);
-    
-    // Create Synchronization Objects
+    ESP_LOGI(TAG, "Initializing EmSave Network Layer. My ID: %d", my_node_id);
     ack_wait_sem = xSemaphoreCreateBinary();
     tx_pipeline_mutex = xSemaphoreCreateMutex();
     
     for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
         neighbor_table[i].status = NODE_DISCONNECTED;
         neighbor_table[i].node_id = 0xFF; 
-    }
-    
-    // Default Neighbor Strategy
-    if (my_node_id > 0) {
-        neighbor_table[0].node_id = my_node_id - 1;
-        neighbor_table[0].status = NODE_CONNECTED;
-        neighbor_table[0].rssi = -80; 
-        neighbor_table[0].last_seen_ms = millis();
-        ESP_LOGI(TAG, "Added Default Neighbor: %d", neighbor_table[0].node_id);
+        neighbor_table[i].rx_seq = 0; // Initialize sequence memory to 0
     }
 }
 
 static int find_neighbor_index(uint8_t id) {
     for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
-        if (neighbor_table[i].node_id == id) return i;
+        if (neighbor_table[i].status == NODE_CONNECTED && neighbor_table[i].node_id == id) return i;
     }
     return -1;
 }
 
-static void update_neighbor(uint8_t id, int8_t rssi) {
+static void update_neighbor(uint8_t id, int8_t rssi, uint8_t rx_seq) {
     if (id == BROADCAST_ID) return;
+
+    // --- EmSave RSSI Threshold Logic ---
+    if (id == 0 && rssi < RSSI_THRESHOLD_MASTER) {
+        ESP_LOGD(TAG, "Rejected Master (ID 0) due to weak RSSI: %d", rssi);
+        return;
+    }
+    if (id != 0 && rssi < RSSI_THRESHOLD_PEER) {
+        ESP_LOGD(TAG, "Rejected Peer (ID %d) due to weak RSSI: %d", id, rssi);
+        return;
+    }
 
     int idx = find_neighbor_index(id);
     
+    // Add new neighbor if not found
     if (idx == -1) {
         for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
             if (neighbor_table[i].status == NODE_DISCONNECTED) {
                 idx = i;
                 neighbor_table[i].node_id = id;
-                ESP_LOGI(TAG, "New Neighbor Discovered: Node %d (RSSI %d)", id, rssi);
+                ESP_LOGW(TAG, "*** New Neighbor Linked: Node %d (RSSI %d) ***", id, rssi);
                 break;
             }
         }
     }
     
+    // Update stats
     if (idx != -1) {
         neighbor_table[idx].status = NODE_CONNECTED;
         neighbor_table[idx].rssi = rssi;
         neighbor_table[idx].last_seen_ms = millis();
+        neighbor_table[idx].rx_seq = rx_seq; // Update sequence memory
     }
 }
 
-//Temporary blinfolding the Node-2
-// static void update_neighbor(uint8_t id, int8_t rssi) {
-//     if (id == BROADCAST_ID) return;
-
-//     // --- NEW: THE SOFTWARE BLINDFOLD (For Testing Node 2 Only) ---
-//     // If I am Node 2, pretend I can NEVER hear Node 0 directly.
-//     if (my_node_id == 2 && id == 0) {
-//         return; 
-//     }
-//     // -------------------------------------------------------------
-
-//     int idx = find_neighbor_index(id);
-//     if (idx == -1) {
-//         for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
-//             if (neighbor_table[i].status == NODE_DISCONNECTED) {
-//                 idx = i;
-//                 neighbor_table[i].node_id = id;
-//                 ESP_LOGW(TAG, "*** New Neighbor Linked: Node %d (RSSI %d) ***", id, rssi);
-//                 break;
-//             }
-//         }
-//     }
-    
-//     if (idx != -1) {
-//         neighbor_table[idx].status = NODE_CONNECTED;
-//         neighbor_table[idx].rssi = rssi;
-//         neighbor_table[idx].last_seen_ms = millis();
-//     }
-// }
-
-
-// --- HYBRID ROUTING ALGORITHM (Industry Standard) ---
+// --- TRUE EMSAVE HUNTING ALGORITHM ---
 static uint8_t get_next_hop(uint8_t final_dest) {
     if (final_dest == BROADCAST_ID) return BROADCAST_ID;
 
-    // 1. DIRECT CONNECTION PRIORITY
+    // 1. Context 1: Direct Connection Priority
     int direct_idx = find_neighbor_index(final_dest);
     if (direct_idx != -1 && neighbor_table[direct_idx].status == NODE_CONNECTED) {
         return final_dest; 
     }
 
-    // 2. LINEAR HOPPING
+    // 2. Context 3: Linear Hopping
     uint8_t best_candidate = 0xFF;
 
     if (final_dest > my_node_id) { 
-        // I need to send UP the chain. 
-        // Find the SMALLEST neighbor ID that is GREATER than me.
-        uint8_t closest_above = 0xFF;
-        for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
-            if (neighbor_table[i].status == NODE_CONNECTED) {
-                uint8_t nid = neighbor_table[i].node_id;
-                if (nid > my_node_id && nid < closest_above) {
-                    closest_above = nid;
-                    best_candidate = nid;
-                }
-            }
-        }
-    } else { 
-        // I need to send DOWN the chain (towards Gateway 0).
-        // Find the LARGEST neighbor ID that is LESS than me.
-        uint8_t closest_below = 0;
+        // Upstream: Find HIGHEST neighbor ID that is <= Destination
+        uint8_t highest_valid = 0;
         bool found = false;
         for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
             if (neighbor_table[i].status == NODE_CONNECTED) {
                 uint8_t nid = neighbor_table[i].node_id;
-                if (nid < my_node_id && nid >= closest_below) {
-                    closest_below = nid;
-                    best_candidate = nid;
-                    found = true;
+                if (nid > my_node_id && nid <= final_dest) {
+                    if (!found || nid > highest_valid) {
+                        highest_valid = nid;
+                        best_candidate = nid;
+                        found = true;
+                    }
                 }
             }
         }
-        if(!found) best_candidate = 0xFF;
+    } else { 
+        // Downstream: Find LOWEST neighbor ID that is >= Destination
+        uint8_t lowest_valid = 0xFF;
+        bool found = false;
+        for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
+            if (neighbor_table[i].status == NODE_CONNECTED) {
+                uint8_t nid = neighbor_table[i].node_id;
+                if (nid < my_node_id && nid >= final_dest) {
+                    if (!found || nid < lowest_valid) {
+                        lowest_valid = nid;
+                        best_candidate = nid;
+                        found = true;
+                    }
+                }
+            }
+        }
     }
     
     return best_candidate;
@@ -177,85 +148,89 @@ void send_ack(uint8_t target_node, uint8_t acked_seq_num) {
     ack_pkt.header.origin_src_id = my_node_id;
     ack_pkt.payload[0] = acked_seq_num;
     ack_pkt.header.length = 10 + 1; 
-
-    // Send immediately
     mac_tx(&ack_pkt);
 }
 
-// --- Packet Handler (RX) ---
 void network_handle_packet(farm_packet_t *pkt, int8_t rssi) {
-    // 1. Learn from the packet (Snooping)
-    update_neighbor(pkt->header.sender_id, rssi);
+    // 1. EmSave RSSI Thresholding
+    if (pkt->header.sender_id == 0 && rssi < RSSI_THRESHOLD_MASTER) return;
+    if (pkt->header.sender_id != 0 && rssi < RSSI_THRESHOLD_PEER) return;
 
-    // 2. Filter: Is this packet addressed to my MAC address, or is it a broadcast?
+    // 2. EMSAVE DUPLICATE REJECTION LOGIC
+    int idx = find_neighbor_index(pkt->header.sender_id);
+    
+    if (idx != -1 && neighbor_table[idx].rx_seq == pkt->header.seq_num) {
+        ESP_LOGD(TAG, "Duplicate frame rejected (Seq: %d, From: %d)", pkt->header.seq_num, pkt->header.sender_id);
+        
+        // If it's a duplicate, it means our previous ACK was lost. Resend the ACK to shut them up!
+        uint8_t pkt_type = pkt->header.fcf & 0x0F;
+        if ((pkt->header.fcf & FCF_MASK_ACK_REQ) && pkt->header.target_id != BROADCAST_ID && pkt_type != PKT_TYPE_ACK) {
+            send_ack(pkt->header.sender_id, pkt->header.seq_num);
+        }
+        return; // Halt processing
+    }
+
+    // 3. Learn from the packet (It is fresh data!)
+    update_neighbor(pkt->header.sender_id, rssi, pkt->header.seq_num);
+
+    // 4. Filter: Is this packet addressed to me, or broadcast?
     if (pkt->header.target_id == my_node_id || pkt->header.target_id == BROADCAST_ID) {
         
         uint8_t pkt_type = pkt->header.fcf & 0x0F;
 
-        // Handle ACKs first
+        // Handle ACKs
         if (pkt_type == PKT_TYPE_ACK) {
-            ESP_LOGI(TAG, ">> ACK RECEIVED from Node %d for Seq: %d", 
-                     pkt->header.sender_id, pkt->payload[0]);
-            
-            if (is_waiting_for_ack && 
-                pkt->header.sender_id == expected_ack_from && 
-                pkt->payload[0] == expected_ack_seq) {
+            ESP_LOGI(TAG, ">> ACK RECEIVED from Node %d for Seq: %d", pkt->header.sender_id, pkt->payload[0]);
+            if (is_waiting_for_ack && pkt->header.sender_id == expected_ack_from && pkt->payload[0] == expected_ack_seq) {
                 xSemaphoreGive(ack_wait_sem);
             }
             return; 
         }
 
-        // Send Hop-by-Hop ACK back to the immediate sender
+        // Send Hop-by-Hop ACK
         if ((pkt->header.fcf & FCF_MASK_ACK_REQ) && pkt->header.target_id != BROADCAST_ID) {
             send_ack(pkt->header.sender_id, pkt->header.seq_num);
         }
 
-        // 3. AM I THE FINAL DESTINATION?
+        // 5. FINAL DESTINATION
         if (pkt->header.final_dest_id == my_node_id || pkt->header.final_dest_id == BROADCAST_ID) {
             ESP_LOGD(TAG, "Packet Accepted (Type: 0x%02X)", pkt_type);
-            // Hand over to App Layer
             if (app_rx_cb != NULL) {
                 app_rx_cb(pkt->header.origin_src_id, pkt_type, pkt->payload, pkt->header.length - 10);
             }
         } 
-        
-        // 4. I AM A RELAY! (Transparent Bridging)
+        // 6. MESH RELAY
+        // 6. MESH RELAY
         else {
             if (pkt->header.hop_count > 0 && pkt->header.target_id != BROADCAST_ID) {
-                
-                // Ask the routing algorithm for the next step
                 uint8_t next_hop = get_next_hop(pkt->header.final_dest_id);
-                
                 if (next_hop != 0xFF) {
-                    // --- EXPLICIT OBSERVABILITY LOGGING ---
                     ESP_LOGW(TAG, "=================================================");
                     ESP_LOGW(TAG, "  INTERCEPTED PACKET - ACTING AS MESH RELAY");
-                    ESP_LOGW(TAG, "  Type: 0x%02X | Hop Count Left: %d", pkt_type, pkt->header.hop_count);
-                    ESP_LOGW(TAG, "  Origin: Node %d  --->  Final Dest: Node %d", 
-                             pkt->header.origin_src_id, pkt->header.final_dest_id);
+                    ESP_LOGW(TAG, "  Origin: Node %d  --->  Final Dest: Node %d", pkt->header.origin_src_id, pkt->header.final_dest_id);
                     ESP_LOGW(TAG, "  Routing through Next Hop: Node %d", next_hop);
                     ESP_LOGW(TAG, "=================================================");
                              
-                    // Update header for the next hop
                     pkt->header.target_id = next_hop;
-                    pkt->header.sender_id = my_node_id; // I am the new immediate sender
-                    pkt->header.hop_count--;
+                    pkt->header.sender_id = my_node_id; 
                     
-                    // Transmit the relayed packet
+                    // --- THE CRITICAL BUG FIX ---
+                    // We MUST assign a new sequence number from our own pool so the 
+                    // receiver doesn't mistake this for a duplicate of our own packets!
+                    pkt->header.seq_num = current_seq_num++; 
+                    // ----------------------------
+
+                    pkt->header.hop_count--;
                     mac_tx(pkt); 
                 } else {
-                    ESP_LOGE(TAG, "Relay Dropped: No valid route found to Node %d", pkt->header.final_dest_id);
+                    ESP_LOGE(TAG, "Relay Dropped: No route to %d", pkt->header.final_dest_id);
                 }
-            } else if (pkt->header.hop_count == 0) {
-                ESP_LOGE(TAG, "Relay Dropped: Hop count reached 0 (Infinite Loop Prevented)");
             }
         }
     }
 }
 
-// --- Send Function with Auto-Retry & Self Healing ---
 bool network_send(uint8_t dest_id, packet_type_t type, uint8_t *payload, uint8_t len) {
-    // Lock the pipeline so multiple app tasks don't mix up the ACK waiting
     xSemaphoreTake(tx_pipeline_mutex, portMAX_DELAY);
     
     farm_packet_t pkt;
@@ -283,66 +258,40 @@ bool network_send(uint8_t dest_id, packet_type_t type, uint8_t *payload, uint8_t
         pkt.header.fcf |= FCF_MASK_ACK_REQ; 
     }
 
-    pkt.header.hop_count = CONFIG_MESH_MAX_HOPS; // e.g. 10
+    pkt.header.hop_count = CONFIG_MESH_MAX_HOPS; 
     pkt.header.final_dest_id = dest_id;
     pkt.header.origin_src_id = my_node_id;
     memcpy(pkt.payload, payload, len);
 
-    // --- RETRY LOOP EXECUTION ---
     bool requires_ack = (pkt.header.fcf & FCF_MASK_ACK_REQ);
     bool tx_success = false;
-    uint8_t retries = CONFIG_MESH_MAX_RETRIES; // e.g. 3
+    uint8_t retries = CONFIG_MESH_MAX_RETRIES;
 
     if (requires_ack) {
         expected_ack_seq = pkt.header.seq_num;
         expected_ack_from = next_hop;
         is_waiting_for_ack = true;
-        xSemaphoreTake(ack_wait_sem, 0); // Clear any old stale acks
+        xSemaphoreTake(ack_wait_sem, 0); 
     }
 
     while (retries > 0) {
-        // Step 1: Send the raw packet to the air
         mac_tx(&pkt);
-        
-        // If it's a broadcast, we don't expect an ACK, so we are done!
-        if (!requires_ack) {
-            tx_success = true;
-            break;
-        }
+        if (!requires_ack) { tx_success = true; break; }
 
-        // Step 2: Block and wait for the RX Task to give us the ACK semaphore
-        // We wait for the specific Timeout duration defined in menuconfig
         if (xSemaphoreTake(ack_wait_sem, pdMS_TO_TICKS(CONFIG_MESH_ACK_TIMEOUT_MS)) == pdTRUE) {
-            // We got the ACK!
             tx_success = true;
             break;
         } else {
-            // Step 3: Timeout! Decrement retry count.
             retries--;
-            if (retries > 0) {
-                ESP_LOGW(TAG, "No ACK from Node %d. Retrying... (%d attempts left)", next_hop, retries);
-                // Important: We increment the sequence number on a retry to avoid duplicate rejection
-                // (though in some protocols retries keep the same seq, incrementing is safer here)
-                // We'll keep the same seq num so the receiver knows it's a retry.
-            }
+            if (retries > 0) ESP_LOGW(TAG, "No ACK from Node %d. Retrying...", next_hop);
         }
     }
 
-    // Clean up state
     is_waiting_for_ack = false;
-
-    // --- STEP 4: SELF HEALING (DEAD NODE PURGING) ---
     if (!tx_success && requires_ack) {
-        ESP_LOGE(TAG, "CRITICAL: Max retries reached! Node %d is unresponsive.", next_hop);
-        
-        // Mark the node as disconnected in the routing table.
-        // The NEXT time this function is called, get_next_hop() will ignore this node
-        // and find an alternative path. This is the core of Mesh Self-Healing.
         int idx = find_neighbor_index(next_hop);
-        if (idx != -1) {
-            neighbor_table[idx].status = NODE_DISCONNECTED;
-            ESP_LOGW(TAG, "Route to Node %d purged from Neighbor Table.", next_hop);
-        }
+        if (idx != -1) neighbor_table[idx].status = NODE_DISCONNECTED;
+        // NOTE: In the next step, we will notify the Gateway here as per Declare_Dead.md
     }
 
     xSemaphoreGive(tx_pipeline_mutex);
