@@ -87,37 +87,81 @@ static void update_neighbor(uint8_t id, int8_t rssi) {
     }
 }
 
+//Temporary blinfolding the Node-2
+// static void update_neighbor(uint8_t id, int8_t rssi) {
+//     if (id == BROADCAST_ID) return;
+
+//     // --- NEW: THE SOFTWARE BLINDFOLD (For Testing Node 2 Only) ---
+//     // If I am Node 2, pretend I can NEVER hear Node 0 directly.
+//     if (my_node_id == 2 && id == 0) {
+//         return; 
+//     }
+//     // -------------------------------------------------------------
+
+//     int idx = find_neighbor_index(id);
+//     if (idx == -1) {
+//         for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
+//             if (neighbor_table[i].status == NODE_DISCONNECTED) {
+//                 idx = i;
+//                 neighbor_table[i].node_id = id;
+//                 ESP_LOGW(TAG, "*** New Neighbor Linked: Node %d (RSSI %d) ***", id, rssi);
+//                 break;
+//             }
+//         }
+//     }
+    
+//     if (idx != -1) {
+//         neighbor_table[idx].status = NODE_CONNECTED;
+//         neighbor_table[idx].rssi = rssi;
+//         neighbor_table[idx].last_seen_ms = millis();
+//     }
+// }
+
+
+// --- HYBRID ROUTING ALGORITHM (Industry Standard) ---
 static uint8_t get_next_hop(uint8_t final_dest) {
     if (final_dest == BROADCAST_ID) return BROADCAST_ID;
 
+    // 1. DIRECT CONNECTION PRIORITY
     int direct_idx = find_neighbor_index(final_dest);
     if (direct_idx != -1 && neighbor_table[direct_idx].status == NODE_CONNECTED) {
         return final_dest; 
     }
 
+    // 2. LINEAR HOPPING
     uint8_t best_candidate = 0xFF;
 
-    if (final_dest > my_node_id) { // Upstream
-        uint8_t max_id = 0;
+    if (final_dest > my_node_id) { 
+        // I need to send UP the chain. 
+        // Find the SMALLEST neighbor ID that is GREATER than me.
+        uint8_t closest_above = 0xFF;
         for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
             if (neighbor_table[i].status == NODE_CONNECTED) {
                 uint8_t nid = neighbor_table[i].node_id;
-                if (nid > my_node_id && nid <= final_dest) {
-                    if (nid > max_id) { max_id = nid; best_candidate = nid; }
+                if (nid > my_node_id && nid < closest_above) {
+                    closest_above = nid;
+                    best_candidate = nid;
                 }
             }
         }
-    } else { // Downstream
-        uint8_t min_id = 0xFF;
+    } else { 
+        // I need to send DOWN the chain (towards Gateway 0).
+        // Find the LARGEST neighbor ID that is LESS than me.
+        uint8_t closest_below = 0;
+        bool found = false;
         for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
             if (neighbor_table[i].status == NODE_CONNECTED) {
                 uint8_t nid = neighbor_table[i].node_id;
-                if (nid < my_node_id && nid >= final_dest) {
-                    if (nid < min_id) { min_id = nid; best_candidate = nid; }
+                if (nid < my_node_id && nid >= closest_below) {
+                    closest_below = nid;
+                    best_candidate = nid;
+                    found = true;
                 }
             }
         }
+        if(!found) best_candidate = 0xFF;
     }
+    
     return best_candidate;
 }
 
@@ -138,18 +182,21 @@ void send_ack(uint8_t target_node, uint8_t acked_seq_num) {
     mac_tx(&ack_pkt);
 }
 
+// --- Packet Handler (RX) ---
 void network_handle_packet(farm_packet_t *pkt, int8_t rssi) {
+    // 1. Learn from the packet (Snooping)
     update_neighbor(pkt->header.sender_id, rssi);
 
+    // 2. Filter: Is this packet addressed to my MAC address, or is it a broadcast?
     if (pkt->header.target_id == my_node_id || pkt->header.target_id == BROADCAST_ID) {
+        
         uint8_t pkt_type = pkt->header.fcf & 0x0F;
 
-        // --- NEW: ACK CHECKING LOGIC ---
+        // Handle ACKs first
         if (pkt_type == PKT_TYPE_ACK) {
             ESP_LOGI(TAG, ">> ACK RECEIVED from Node %d for Seq: %d", 
                      pkt->header.sender_id, pkt->payload[0]);
             
-            // If this is the ACK we are actively waiting for, unlock the TX task!
             if (is_waiting_for_ack && 
                 pkt->header.sender_id == expected_ack_from && 
                 pkt->payload[0] == expected_ack_seq) {
@@ -158,27 +205,49 @@ void network_handle_packet(farm_packet_t *pkt, int8_t rssi) {
             return; 
         }
 
-        // --- Data/Cmd Logic ---
-        ESP_LOGD(TAG, "Packet Accepted (Type: 0x%02X)", pkt_type);
-
+        // Send Hop-by-Hop ACK back to the immediate sender
         if ((pkt->header.fcf & FCF_MASK_ACK_REQ) && pkt->header.target_id != BROADCAST_ID) {
             send_ack(pkt->header.sender_id, pkt->header.seq_num);
         }
 
+        // 3. AM I THE FINAL DESTINATION?
         if (pkt->header.final_dest_id == my_node_id || pkt->header.final_dest_id == BROADCAST_ID) {
+            ESP_LOGD(TAG, "Packet Accepted (Type: 0x%02X)", pkt_type);
+            // Hand over to App Layer
             if (app_rx_cb != NULL) {
                 app_rx_cb(pkt->header.origin_src_id, pkt_type, pkt->payload, pkt->header.length - 10);
             }
-        } else {
-            // Relay (Will implement Hop-by-Hop retry for relays in Phase 5)
+        } 
+        
+        // 4. I AM A RELAY! (Transparent Bridging)
+        else {
             if (pkt->header.hop_count > 0 && pkt->header.target_id != BROADCAST_ID) {
+                
+                // Ask the routing algorithm for the next step
                 uint8_t next_hop = get_next_hop(pkt->header.final_dest_id);
+                
                 if (next_hop != 0xFF) {
+                    // --- EXPLICIT OBSERVABILITY LOGGING ---
+                    ESP_LOGW(TAG, "=================================================");
+                    ESP_LOGW(TAG, "  INTERCEPTED PACKET - ACTING AS MESH RELAY");
+                    ESP_LOGW(TAG, "  Type: 0x%02X | Hop Count Left: %d", pkt_type, pkt->header.hop_count);
+                    ESP_LOGW(TAG, "  Origin: Node %d  --->  Final Dest: Node %d", 
+                             pkt->header.origin_src_id, pkt->header.final_dest_id);
+                    ESP_LOGW(TAG, "  Routing through Next Hop: Node %d", next_hop);
+                    ESP_LOGW(TAG, "=================================================");
+                             
+                    // Update header for the next hop
                     pkt->header.target_id = next_hop;
-                    pkt->header.sender_id = my_node_id;
+                    pkt->header.sender_id = my_node_id; // I am the new immediate sender
                     pkt->header.hop_count--;
-                    mac_tx(pkt);
+                    
+                    // Transmit the relayed packet
+                    mac_tx(pkt); 
+                } else {
+                    ESP_LOGE(TAG, "Relay Dropped: No valid route found to Node %d", pkt->header.final_dest_id);
                 }
+            } else if (pkt->header.hop_count == 0) {
+                ESP_LOGE(TAG, "Relay Dropped: Hop count reached 0 (Infinite Loop Prevented)");
             }
         }
     }
