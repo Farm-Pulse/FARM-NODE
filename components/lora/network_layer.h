@@ -29,9 +29,6 @@ typedef struct {
 
 // --- Function Prototypes ---
 void network_init(void);
-static int find_neighbor_index(uint8_t id);
-static void update_neighbor(uint8_t id, int8_t rssi, uint8_t rx_seq);
-static uint8_t get_next_hop(uint8_t final_dest);
 void send_ack(uint8_t target_node, uint8_t acked_seq_num);
 void network_handle_packet(farm_packet_t *pkt, int8_t rssi);
 bool network_send(uint8_t dest_id, packet_type_t type, uint8_t *payload, uint8_t len);
