@@ -1,5 +1,5 @@
 /**
- * @file mac_layer.c
+ * @file mac_layer.h
  * @brief Handles raw SPI communication with the SX1276 LoRa chip and Interrupts.
  * @author Shahid  
  * @date Feb 2026
