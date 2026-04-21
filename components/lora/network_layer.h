@@ -1,3 +1,10 @@
+/**
+ * @file network_layer.c
+ * @brief Handles Mesh Routing, Retries, ACKs, Neighbor Tables, and Sequence filtering.
+ * @author Shahid  
+ * @date Feb 2026
+ */
+
 #ifndef NETWORK_H
 #define NETWORK_H
 

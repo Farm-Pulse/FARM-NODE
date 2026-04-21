@@ -1,3 +1,10 @@
+/**
+ * @file network_layer.c
+ * @brief Handles Mesh Routing, Retries, ACKs, Neighbor Tables, and Sequence filtering.
+ * @author Shahid  
+ * @date Feb 2026
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"

@@ -1,3 +1,10 @@
+/**
+ * @file mac_layer.c
+ * @brief Handles raw SPI communication with the SX1276 LoRa chip and Interrupts.
+ * @author Shahid  
+ * @date Feb 2026
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
