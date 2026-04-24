@@ -9,6 +9,7 @@
 #include "network_layer.h"
 #include "farmpulse_defs.h"
 #include "zmpt101b.h"
+#include "ads111x.h"
 
 static const char *TAG = "APP_MAIN";
 
