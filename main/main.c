@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "driver/gpio.h"
 
 #include "mac_layer.h"
 #include "network_layer.h"
@@ -14,6 +15,7 @@ static const char *TAG = "APP_MAIN";
 
 #define MY_NODE_ID       CONFIG_FARMPULSE_NODE_ID
 #define IS_GATEWAY       (CONFIG_FARMPULSE_NODE_ID == 0)
+#define RELAY_PIN GPIO_NUM_4
 
 static uint8_t motor_state = 0; 
 
@@ -33,10 +35,12 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *data, uint8_t len
         uint8_t cmd = data[0];
         if (cmd == CMD_MOTOR_ON) {
             motor_state = 1;
+            gpio_set_level(RELAY_PIN, 1);
             ESP_LOGW(TAG, "COMMAND RECEIVED: MOTOR ON [RELAY HIGH]");
         } 
         else if (cmd == CMD_MOTOR_OFF) {
             motor_state = 0;
+            gpio_set_level(RELAY_PIN, 0);
             ESP_LOGW(TAG, "COMMAND RECEIVED: MOTOR OFF [RELAY LOW]");
         }
     }
@@ -108,6 +112,11 @@ void app_main(void) {
     ESP_LOGI(TAG, "==========================================");
     ESP_LOGI(TAG, "   FARMPULSE PHASE 5 - Node ID: %d", MY_NODE_ID);
     ESP_LOGI(TAG, "==========================================");
+
+    // --- INITIALIZE PHYSICAL HARDWARE ---
+    gpio_reset_pin(RELAY_PIN);
+    gpio_set_direction(RELAY_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(RELAY_PIN, 0); // Ensure motor is OFF on boot
 
     mac_init();     
     network_init(); 

@@ -42,6 +42,7 @@ typedef struct {
     uint8_t  motor_status; // 1=ON, 0=OFF
     uint8_t  reserved;
 } sensor_data_t;
+#pragma pack(pop)
 
 // --- Frame Control Flags ---
 // Bit 7-6: EHO (Extended Header)
@@ -73,9 +74,11 @@ typedef struct {
 #define MAX_PAYLOAD_SIZE 200
 
 // Full Packet Structure
+#pragma pack(push, 1)
 typedef struct {
     farm_header_t header;
     uint8_t       payload[MAX_PAYLOAD_SIZE];
 } farm_packet_t;
+#pragma pack(pop)
 
 #endif // FARMPULSE_DEFS_H
