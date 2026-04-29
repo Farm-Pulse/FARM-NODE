@@ -10,37 +10,36 @@
 
 static const char *TAG = "ZMPT101B";
 
-// --- Placeholder GPIOs for 3-Phase ZMPT101B ---
-// Adjust these ADC channels once your hardware team finalizes the pins
-#define ZMPT_ADC_UNIT      ADC_UNIT_1
-#define ZMPT_CH_R          ADC_CHANNEL_0 // GPIO 1 on ESP32-S3
-#define ZMPT_CH_Y          ADC_CHANNEL_1 // GPIO 2 on ESP32-S3
-#define ZMPT_CH_B          ADC_CHANNEL_2 // GPIO 3 on ESP32-S3
+// --- Safe LILYGO T3S3 v1.2 ADC2 Pins ---
+#define ZMPT_ADC_UNIT      ADC_UNIT_2
+#define ZMPT_CH_R          ADC_CHANNEL_1 // Physical GPIO 12 
+#define ZMPT_CH_Y          ADC_CHANNEL_4 // Physical GPIO 15 
+#define ZMPT_CH_B          ADC_CHANNEL_5 // Physical GPIO 16 
 
 // --- Tuning Parameters ---
 #define SAMPLE_WINDOW_US   40000  // 40ms = exactly two 50Hz cycles
 #define NUM_SAMPLES        400    // Samples per phase per window
-#define CALIBRATION_FACTOR 0.254f // You will tune this with a multimeter later!
+#define CALIBRATION_FACTOR 0.254f // Tune this with a multimeter later
 
-static adc_oneshot_unit_handle_t adc1_handle;
+static adc_oneshot_unit_handle_t adc2_handle;
 
 esp_err_t zmpt_init(void) {
-    ESP_LOGI(TAG, "Initializing ZMPT101B 3-Phase ADC...");
+    ESP_LOGI(TAG, "Initializing ZMPT101B 3-Phase ADC on ADC_UNIT_2...");
 
     adc_oneshot_unit_init_cfg_t init_config = {
         .unit_id = ZMPT_ADC_UNIT,
         .ulp_mode = ADC_ULP_MODE_DISABLE,
     };
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc1_handle));
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc2_handle));
 
     adc_oneshot_chan_cfg_t config = {
         .bitwidth = ADC_BITWIDTH_DEFAULT,
         .atten = ADC_ATTEN_DB_12, // 12dB allows reading up to ~3.3V
     };
     
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ZMPT_CH_R, &config));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ZMPT_CH_Y, &config));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ZMPT_CH_B, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, ZMPT_CH_R, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, ZMPT_CH_Y, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, ZMPT_CH_B, &config));
 
     ESP_LOGI(TAG, "ZMPT101B ADC Initialized.");
     return ESP_OK;
@@ -57,10 +56,15 @@ static float get_rms_voltage(adc_channel_t channel) {
 
     // Sample rapidly for exactly 40ms
     while ((uint32_t)esp_timer_get_time() - start_time < SAMPLE_WINDOW_US) {
-        adc_oneshot_read(adc1_handle, channel, &raw_val);
-        sum += raw_val;
-        sq_sum += ((uint64_t)raw_val * raw_val);
-        samples_taken++;
+        
+        // --- THE ARBITRATION FIX ---
+        // ADC2 shares hardware with the Wi-Fi PHY. If Wi-Fi is actively transmitting, 
+        // this read might timeout. We check for ESP_OK to ensure we only sum valid data.
+        if (adc_oneshot_read(adc2_handle, channel, &raw_val) == ESP_OK) {
+            sum += raw_val;
+            sq_sum += ((uint64_t)raw_val * raw_val);
+            samples_taken++;
+        }
         
         // Small delay to yield to watchdog and spread out samples
         esp_rom_delay_us(50); 

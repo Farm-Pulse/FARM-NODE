@@ -15,7 +15,9 @@ static const char *TAG = "APP_MAIN";
 
 #define MY_NODE_ID       CONFIG_FARMPULSE_NODE_ID
 #define IS_GATEWAY       (CONFIG_FARMPULSE_NODE_ID == 0)
-#define RELAY_PIN GPIO_NUM_4
+
+#define RELAY_PIN   48
+
 
 static uint8_t motor_state = 0; 
 
@@ -77,11 +79,11 @@ void application_task(void *arg) {
             my_data.voltage_R = (uint16_t)vr;
             my_data.voltage_Y = (uint16_t)vy;
             my_data.voltage_B = (uint16_t)vb;
-            my_data.current_R = 15 + (motor_state * 50); 
-            my_data.current_Y = 14 + (motor_state * 50);
-            my_data.current_B = 16 + (motor_state * 50);
-            my_data.power_active = 1500 + (motor_state * 5000);
-            my_data.motor_status = motor_state;
+            // my_data.current_R = 15 + (motor_state * 50); 
+            // my_data.current_Y = 14 + (motor_state * 50);
+            // my_data.current_B = 16 + (motor_state * 50);
+            // my_data.power_active = 1500 + (motor_state * 5000);
+            // my_data.motor_status = motor_state;
 
             ESP_LOGI(TAG, "Node %d: Sending 3-Phase Data to Gateway...", MY_NODE_ID);
             network_send(0, PKT_TYPE_DATA, (uint8_t*)&my_data, sizeof(sensor_data_t));
