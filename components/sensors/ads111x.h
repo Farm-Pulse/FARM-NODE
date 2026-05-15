@@ -1,3 +1,10 @@
+/**
+ * @file ads111x.h
+ * @brief ADS111x extrnal ADC driver code.
+ * @author Shahid  
+ * @date April 2026
+ */
+
 #ifndef ADS1115_H
 #define ADS1115_H
 

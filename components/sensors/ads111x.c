@@ -1,3 +1,10 @@
+/**
+ * @file ads111x.c
+ * @brief ADS111x extrnal ADC driver code.
+ * @author Shahid  
+ * @date April 2026
+ */
+
 #include <stdio.h>
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"

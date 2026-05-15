@@ -1,3 +1,10 @@
+/**
+ * @file zmpt101b.c
+ * @brief ZMPT101B module 3-Phase reading
+ * @author Shahid  
+ * @date March 2026
+ */
+
 #include <stdio.h>
 #include <math.h>
 #include "esp_timer.h"
