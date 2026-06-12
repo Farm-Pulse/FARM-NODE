@@ -2,6 +2,7 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
@@ -103,6 +104,13 @@ void application_task(void *arg) {
 
 // FarmNode main application
 void app_main(void) {
+    //Versioning
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+    
+    ESP_LOGI(TAG, "FarmPulse Firmware Version: %s", app_desc->version);
+    ESP_LOGI(TAG, "Project Name: %s", app_desc->project_name);
+
+    //Initailise the NVS-Flash
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
