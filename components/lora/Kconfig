@@ -1,0 +1,70 @@
+menu "FarmPulse RF-Stack"
+
+    config FARMPULSE_NODE_ID
+        int "Device Node ID (0-255)"
+        range 0 255
+        default 1
+        help
+            Unique ID for this device. 0 is the Gateway (Master). 1-255 are FarmNodes.
+
+    config FARMPULSE_NETWORK_ID
+        hex "Network ID (PAN ID)"
+        range 0x0000 0xFFFF
+        default 0xA1B2
+        help
+            Unique Network ID. Only nodes with the same Network ID can talk to each other.
+
+
+    menu "LoRa Radio Parameters"
+
+        config LORA_FREQUENCY_HZ
+            int "Frequency (Hz)"
+            default 865000000
+            help
+                Frequency in Hz. India is 865MHz - 867MHz.
+
+        config LORA_SF
+            int "Spreading Factor (6-12)"
+            range 6 12
+            default 9
+            help
+                SF9 is the sweet spot for agriculture (Good range, acceptable speed).
+
+        config LORA_BW_INDEX
+            int "Bandwidth Index (7 = 125kHz)"
+            range 0 9
+            default 7
+            help
+                Standard SX127x BW mapping: 7 corresponds to 125 kHz.
+
+    endmenu
+
+    menu "Mesh Timing & Reliability"
+
+        config MESH_HEARTBEAT_INTERVAL_MS
+            int "Heartbeat Interval (ms)"
+            default 300000
+            help
+                Time between 'I am Alive' packets. Default 5 mins (300,000 ms).
+
+        config MESH_ACK_TIMEOUT_MS
+            int "Ack Timeout (ms)"
+            default 2000
+            help
+                Time to wait for an Ack before retrying.
+
+        config MESH_MAX_RETRIES
+            int "Max Retries"
+            default 3
+            help
+                Number of times to re-send a packet if no Ack is received.
+
+        config MESH_MAX_HOPS
+            int "Max Hops (TTL)"
+            default 10
+            help
+                Maximum number of jumps a packet can make before dying.
+
+    endmenu
+
+endmenu
