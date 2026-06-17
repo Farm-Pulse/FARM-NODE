@@ -11,11 +11,12 @@
 #include "network_layer.h"
 #include "farmpulse_defs.h"
 #include "zmpt101b.h"
+#include "farmpulse_config.h"
 
 static const char *TAG = "APP_MAIN";
 
-#define MY_NODE_ID       CONFIG_FARMPULSE_NODE_ID
-#define IS_GATEWAY       (CONFIG_FARMPULSE_NODE_ID == 0)
+//#define MY_NODE_ID       CONFIG_FARMPULSE_NODE_ID
+#define IS_GATEWAY       (system_config.node_id == 0)
 
 #define RELAY_PIN   48
 
@@ -86,14 +87,14 @@ void application_task(void *arg) {
             // my_data.power_active = 1500 + (motor_state * 5000);
             // my_data.motor_status = motor_state;
 
-            ESP_LOGI(TAG, "Node %d: Sending 3-Phase Data to Gateway...", MY_NODE_ID);
+            ESP_LOGI(TAG, "Node %d: Sending 3-Phase Data to Gateway...", system_config.node_id);
             network_send(0, PKT_TYPE_DATA, (uint8_t*)&my_data, sizeof(sensor_data_t));
 
             // CRITICAL NEW LOGIC: Nodes must also Broadcast!
             // Every 30 seconds, tell neighbors "I am here"
             if (counter % 3 == 0) {
                 vTaskDelay(pdMS_TO_TICKS(1500)); // Stagger slightly
-                ESP_LOGI(TAG, "Node %d: Sending Discovery Broadcast...", MY_NODE_ID);
+                ESP_LOGI(TAG, "Node %d: Sending Discovery Broadcast...", system_config.node_id);
                 uint8_t dummy = 0;
                 network_send(0xFF, PKT_TYPE_STATUS, &dummy, 1);
             }
@@ -117,10 +118,11 @@ void app_main(void) {
         nvs_flash_init();
     }
 
+    farmpulse_config_init();
     zmpt_init();
 
     ESP_LOGI(TAG, "==========================================");
-    ESP_LOGI(TAG, "   FARMPULSE PHASE 5 - Node ID: %d", MY_NODE_ID);
+    ESP_LOGI(TAG, "   FARMPULSE PHASE 5 - Node ID: %d", system_config.node_id);
     ESP_LOGI(TAG, "==========================================");
 
     // --- INITIALIZE PHYSICAL HARDWARE ---
