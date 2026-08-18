@@ -134,14 +134,12 @@ typedef struct {
     uint8_t  fault_mask;     // Active alarms bitfield
     uint16_t supply_voltage; // Battery / DC Bus mV
 } sensor_telemetry_t;
-#pragma pack(pop)
 
-// Full Packet Structure
-// #pragma pack(push, 1)
-// typedef struct {
-//     farm_header_t header;
-//     uint8_t       payload[MAX_PAYLOAD_SIZE];
-// } farm_packet_t;
-// #pragma pack(pop)
+//Full Packet Structure
+typedef struct {
+    farm_header_t header;
+    uint8_t       payload[MAX_PAYLOAD_SIZE];
+} farm_packet_t;
+#pragma pack(pop)
 
 #endif // FARMPULSE_DEFS_H
