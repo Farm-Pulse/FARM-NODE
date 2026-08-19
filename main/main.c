@@ -2,7 +2,7 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_app_desc.h"
+//#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
@@ -116,6 +116,29 @@ static void fnSend_Motor_State_Resp(uint8_t target_id) {
 }
 
 
+static void fnSet_Motor_Relay(uint8_t target_id, uint8_t motor_action) {
+    if (motor_action == 1) {
+        current_motor_state = 1;
+        gpio_set_level(RELAY_PIN, 1);
+        ESP_LOGI(TAG, "EXEC: Motor turned ON");
+    } else if (motor_action == 0) {
+        current_motor_state = 0;
+        gpio_set_level(RELAY_PIN, 0);
+        ESP_LOGI(TAG, "EXEC: Motor turned OFF");
+    }
+
+    // Prepare and send the RESP frame back to the requester (Gateway)
+    uint8_t resp_payload[5];
+    resp_payload[0] = CMD_TYPE_CONFIG;
+    resp_payload[1] = _TYPE_CMD_RESPONSE;
+    resp_payload[2] = ACTION_SET;
+    resp_payload[3] = PARAM_MOTOR_CTRL;
+    resp_payload[4] = current_motor_state;
+
+    network_send(target_id, PKT_TYPE_CMD, resp_payload, 5);
+    ESP_LOGI(TAG, "EXEC: Motor State (%d) Response dispatched to Gateway.", current_motor_state);
+}
+
 /**
  * @brief Instantly transmits a critical hardware fault or warning to the Gateway.
  * @param alarm_code Enum defining the specific failure (e.g., ALARM_OVERCURRENT)
@@ -159,7 +182,7 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
                         switch (msg[2]) {
                             
                             case ACTION_SET: // SET_CONFIG (0x01)
-                            {`
+                            {
                                 // Level 5: Switch by Parameter ID (Offset 3)
                                 switch (msg[3]) {
                                     case PARAM_MOTOR_CTRL:
@@ -281,10 +304,10 @@ void farmnode_application_task(void *arg) {
 // FarmNode main application
 void app_main(void) {
     //Versioning
-    const esp_app_desc_t *app_desc = esp_app_get_description();
+    //const esp_app_desc_t *app_desc = esp_app_get_description();
     
-    ESP_LOGI(TAG, "FarmPulse Firmware Version: %s", app_desc->version);
-    ESP_LOGI(TAG, "Project Name: %s", app_desc->project_name);
+    //ESP_LOGI(TAG, "FarmPulse Firmware Version: %s", app_desc->version);
+    //ESP_LOGI(TAG, "Project Name: %s", app_desc->project_name);
 
     //Initailise the NVS-Flash
     esp_err_t ret = nvs_flash_init();
