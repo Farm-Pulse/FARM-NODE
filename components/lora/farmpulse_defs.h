@@ -47,9 +47,12 @@ typedef enum {
 
 // --- Action Codes (Offset 2) ---
 typedef enum {
-    ACTION_SET          = 0x01,
-    ACTION_GET          = 0x02,
-    ACTION_EXEC_CMD     = 0x03
+    ACTION_GET          = 0x01,
+    ACTION_SET          = 0x02,
+    ACTION_EXEC_CMD     = 0x03,
+    ACTION_PERIODIC     = 0x04,
+    ACTION_ALARM        = 0x05,
+    ACTION_DATA         = 0x06
 } action_type_t;
 
 // --- Config Parameter IDs (Offset 3) ---
