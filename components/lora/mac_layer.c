@@ -20,6 +20,7 @@
 #include "farmpulse_defs.h"
 #include "network_layer.h"
 #include "mac_layer.h"
+#include "farmpulse_config.h"
 
 static const char *TAG = "MAC_LAYER";
 
@@ -200,7 +201,7 @@ void lora_rx_task(void *arg) {
 
             ESP_LOGI(TAG, "RX Packet (RSSI %d) -> Network Layer", rssi);
 
-            if (pkt.header.network_id != CONFIG_FARMPULSE_NETWORK_ID) continue;
+            if (pkt.header.network_id != system_config.network_id) continue;
             network_handle_packet(&pkt, (int8_t)rssi);
         }
     }
