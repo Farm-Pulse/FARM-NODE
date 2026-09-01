@@ -16,7 +16,7 @@
 static const char *TAG = "APP_MAIN";
 
 //#define MY_NODE_ID       CONFIG_FARMPULSE_NODE_ID
-#define IS_GATEWAY       (system_config.node_id == 0)
+//#define IS_GATEWAY       (system_config.node_id == 0)
 
 // --- Configurable Timeouts (in seconds) ---
 #define CONFIG_ND_BEACON_INTERVAL   30  // Broadcast Discovery every 30s
@@ -30,7 +30,7 @@ static uint8_t current_motor_state = 0;
 static void fnSend_ND_Beacon(void) {
     uint8_t nd_payload[8];
     nd_payload[0] = STATUS_ND_BEACON; // e.g., 0x03
-    nd_payload[1] = MY_NODE_ID;       
+    nd_payload[1] = system_config.node_id;       
     // Pack other required ND data (Firmware version, PAN ID, etc.)
     
     // 0xFF is the Broadcast Address
@@ -318,6 +318,7 @@ void app_main(void) {
     }
 
     farmpulse_config_init();
+    farmpulse_save_node_id(1);
     zmpt_init();
 
     ESP_LOGI(TAG, "==========================================");
