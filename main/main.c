@@ -2,7 +2,7 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-//#include "esp_app_desc.h"
+#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
@@ -11,11 +11,12 @@
 #include "network_layer.h"
 #include "farmpulse_defs.h"
 #include "zmpt101b.h"
+#include "farmpulse_config.h"
 
 static const char *TAG = "APP_MAIN";
 
-#define MY_NODE_ID       CONFIG_FARMPULSE_NODE_ID
-#define IS_GATEWAY       (CONFIG_FARMPULSE_NODE_ID == 0)
+//#define MY_NODE_ID       CONFIG_FARMPULSE_NODE_ID
+#define IS_GATEWAY       (system_config.node_id == 0)
 
 // --- Configurable Timeouts (in seconds) ---
 #define CONFIG_ND_BEACON_INTERVAL   30  // Broadcast Discovery every 30s
@@ -304,10 +305,10 @@ void farmnode_application_task(void *arg) {
 // FarmNode main application
 void app_main(void) {
     //Versioning
-    //const esp_app_desc_t *app_desc = esp_app_get_description();
+    const esp_app_desc_t *app_desc = esp_app_get_description();
     
-    //ESP_LOGI(TAG, "FarmPulse Firmware Version: %s", app_desc->version);
-    //ESP_LOGI(TAG, "Project Name: %s", app_desc->project_name);
+    ESP_LOGI(TAG, "FarmPulse Firmware Version: %s", app_desc->version);
+    ESP_LOGI(TAG, "Project Name: %s", app_desc->project_name);
 
     //Initailise the NVS-Flash
     esp_err_t ret = nvs_flash_init();
@@ -316,10 +317,11 @@ void app_main(void) {
         nvs_flash_init();
     }
 
+    farmpulse_config_init();
     zmpt_init();
 
     ESP_LOGI(TAG, "==========================================");
-    ESP_LOGI(TAG, "   FARMPULSE PHASE 5 - Node ID: %d", MY_NODE_ID);
+    ESP_LOGI(TAG, "   FARMPULSE PHASE 5 - Node ID: %d", system_config.node_id);
     ESP_LOGI(TAG, "==========================================");
 
     // --- INITIALIZE PHYSICAL HARDWARE ---
