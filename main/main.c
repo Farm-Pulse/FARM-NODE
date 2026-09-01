@@ -19,8 +19,8 @@ static const char *TAG = "APP_MAIN";
 
 // --- Configurable Timeouts (in seconds) ---
 #define CONFIG_ND_BEACON_INTERVAL   30  // Broadcast Discovery every 30s
-#define CONFIG_HEARTBEAT_INTERVAL   300 // Send Alive Status every 5 Minutes
-#define CONFIG_TELEMETRY_INTERVAL   600 // Send Sensor Data every 10 Minutes
+#define CONFIG_HEARTBEAT_INTERVAL   100 // Send Alive Status every 5 Minutes
+#define CONFIG_TELEMETRY_INTERVAL   300 // Send Sensor Data every 10 Minutes
 #define RELAY_PIN   48
 
 static uint8_t current_motor_state = 0; 
@@ -108,7 +108,7 @@ static void fnSend_Motor_State_Resp(uint8_t target_id) {
     resp_payload[0] = CMD_TYPE_CONFIG;    // 0x05
     resp_payload[1] = _TYPE_CMD_RESPONSE; // 0x02 (Direction: Response)
     resp_payload[2] = ACTION_GET;         // 0x02 (Answering a GET action)
-    resp_payload[3] = PARAM_MOTOR_CTRL;   // 0x02
+    resp_payload[3] = PARAM_LORA_MOTOR_CTRL;   // 0x02
     resp_payload[4] = current_motor_state;// Data: 0 or 1
     
     network_send(target_id, PKT_TYPE_CMD, resp_payload, 5);
@@ -132,7 +132,7 @@ static void fnSet_Motor_Relay(uint8_t target_id, uint8_t motor_action) {
     resp_payload[0] = CMD_TYPE_CONFIG;
     resp_payload[1] = _TYPE_CMD_RESPONSE;
     resp_payload[2] = ACTION_SET;
-    resp_payload[3] = PARAM_MOTOR_CTRL;
+    resp_payload[3] = PARAM_LORA_MOTOR_CTRL;
     resp_payload[4] = current_motor_state;
 
     network_send(target_id, PKT_TYPE_CMD, resp_payload, 5);
@@ -185,12 +185,12 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
                             {
                                 // Level 5: Switch by Parameter ID (Offset 3)
                                 switch (msg[3]) {
-                                    case PARAM_MOTOR_CTRL:
+                                    case PARAM_LORA_MOTOR_CTRL:
                                         ESP_LOGI(TAG, "RX: SET Motor Control");
                                         fnSet_Motor_Relay(src_id, msg[4]); // msg[4] holds the ON/OFF payload
                                         break;
                                         
-                                    case PARAM_RF_CONFIG:
+                                    case PARAM_LORA_CONFIG:
                                         ESP_LOGI(TAG, "RX: SET RF Config (Future implementation)");
                                         break;
                                         
@@ -210,7 +210,7 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
                                         fnSend_Sensor_Telemetry(src_id);
                                         break;
                                         
-                                    case PARAM_MOTOR_CTRL:
+                                    case PARAM_LORA_MOTOR_CTRL:
                                         ESP_LOGI(TAG, "RX: GET Motor State Request");
                                         fnSend_Motor_State_Resp(src_id);
                                         break;

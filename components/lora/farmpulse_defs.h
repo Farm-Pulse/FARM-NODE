@@ -49,23 +49,29 @@ typedef enum {
 typedef enum {
     ACTION_GET          = 0x01,
     ACTION_SET          = 0x02,
-    ACTION_EXEC_CMD     = 0x03,
-    ACTION_PERIODIC     = 0x04,
-    ACTION_ALARM        = 0x05,
-    ACTION_DATA         = 0x06
+    ACTION_ACK          = 0x03,
+    ACTION_DATA         = 0x04,
+    ACTION_EXEC_CMD     = 0x05,
+    ACTION_PERIODIC     = 0x06,
+    ACTION_ALARM        = 0x07
 } action_type_t;
 
 // --- Config Parameter IDs (Offset 3) ---
 typedef enum {
-    PARAM_RF_CONFIG     = 0x01, // PAN ID, Channel, TxPower
-    PARAM_MOTOR_CTRL    = 0x02, // Motor Relay ON/OFF
-    PARAM_DEVICE_ID     = 0x05, // Change Node ID
-    PARAM_SIGNATURE     = 0x09, // EEPROM Signature
-    PARAM_RSSI_THRESH   = 0x0A, // RSSI Filter Threshold
-    PARAM_HB_INTERVAL   = 0x10, // Heartbeat reporting period
-    PARAM_ALARM_MASK    = 0x12, // Alarm notification bitmasks
-    PARAM_METER_DATA_REQ= 0x1E, // Force Telemetry Transmission
-    PARAM_REBOOT        = 0xFF  // System Reboot
+    PARAM_LORA_MOTOR_CTRL       = 0x01, // Motor Relay ON/OFF
+    PARAM_LORA_CONFIG           = 0x02, // PAN ID, Channel, TxPower
+    PARAM_LORA_TX_PWR_CONFIG    = 0x03, // PAN ID, Channel, TxPower
+    PARAM_FV                    = 0x04, //Software/Firmware Version
+    PARAM_SENSOR_DATA           = 0x05, //Sensor Data
+    PARAM_LORA_PANEL_STATUS     = 0x06, //Request Panel Status Data
+    PARAM_LORA_UUID             = 0x07, //Unique Identifier
+    PARAM_ALARM_MASK            = 0x12, // Alarm notification bitmasks
+    PARAM_DEVICE_ID             = 0x05, // Change Node ID
+    PARAM_SIGNATURE             = 0x09, // EEPROM Signature
+    PARAM_RSSI_THRESH           = 0x0A, // RSSI Filter Threshold
+    PARAM_HB_INTERVAL           = 0x10, // Heartbeat reporting period
+    PARAM_METER_DATA_REQ        = 0x1E, // Force Telemetry Transmission
+    PARAM_REBOOT                = 0xFF  // System Reboot
 } param_id_t;
 
 // ============================================================================
