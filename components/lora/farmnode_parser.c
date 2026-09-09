@@ -40,9 +40,9 @@ void fnSend_Sensor_Telemetry(uint8_t target_id) {
     tele.current_R = 152; // Simulated 15.2A
     tele.current_Y = 148;
     tele.current_B = 155;
-    tele.power_active = (tele.voltage_R * (tele.current_R / 10)) + 
-                        (tele.voltage_Y * (tele.current_Y / 10)) + 
-                        (tele.voltage_B * (tele.current_B / 10));
+    tele.power_active = ((tele.voltage_R * tele.current_R) / 10) + 
+                        ((tele.voltage_Y * tele.current_Y) / 10) + 
+                        ((tele.voltage_B * tele.current_B) / 10);
                         
     tele.frequency    = 500; // 50.0 Hz
     tele.power_factor = 980; // 0.98 PF
@@ -60,30 +60,26 @@ void fnSend_Sensor_Telemetry(uint8_t target_id) {
  * @brief Builds and transmits the Periodic Normal Heartbeat (0x02).
  *        Informs the Gateway of node health, motor state, and routing neighbors.
  */
-void fnSend_Heartbeat(void) {
-    uint8_t hb_payload[32]; // Buffer large enough for HB + Neighbors
+void fnSend_Heartbeat(uint8_t target_id) {
+    uint8_t hb_payload[32]; 
     uint8_t index = 0;
     
-    // 1. Pack the standard HB data based on the .md specification
-    hb_payload[index++] = STATUS_NORMAL_HB;   // Sub-Status: 0x02
-    hb_payload[index++] = 65;                 // Simulated RSSI (-65 dBm, absolute value)
-    hb_payload[index++] = 1;                  // Simulated Hop Count
-    hb_payload[index++] = current_motor_state;// 0x01 = ON, 0x00 = OFF
+    hb_payload[index++] = STATUS_NORMAL_HB;   
+    hb_payload[index++] = 65;                 
+    hb_payload[index++] = 1;                  
+    hb_payload[index++] = current_motor_state;
     
-    // 2. Fetch Neighbor Table (Simulated for now based on Acevin logic)
-    // In production, you will pull this from your NBT (Neighbor Table) array
     uint8_t simulated_neighbor_count = 2;
-    uint8_t simulated_neighbors[2]   = {14, 15}; // Nodes 14 and 15 are in vicinity
+    uint8_t simulated_neighbors[2]   = {14, 15}; 
     
     hb_payload[index++] = simulated_neighbor_count; 
-    
     for(uint8_t i = 0; i < simulated_neighbor_count; i++) {
         hb_payload[index++] = simulated_neighbors[i];
     }
     
-    // 3. Blast the Status packet to the Gateway (ID: 0)
-    network_send(0, PKT_TYPE_STATUS, hb_payload, index);
-    ESP_LOGI(TAG, "Transmitted Normal HB to Gateway. (Length: %d bytes)", index);
+    // Blast the Status packet to the specific target
+    network_send(target_id, PKT_TYPE_STATUS, hb_payload, index);
+    ESP_LOGI(TAG, "Transmitted Normal HB to Node %d. (Length: %d bytes)", target_id, index);
 }
 
 
@@ -153,6 +149,113 @@ void fnTrigger_Alarm(alarm_code_t alarm_code, uint8_t severity, uint32_t fault_v
 }
 
 
+void fnSend_Panel_Status(uint8_t target_id) {
+    uint8_t payload[64] = {0}; // Safe buffer for massive payload
+    uint8_t index = 0;
+
+    // MAC Layer CMD Header (Offset 0 to 3)
+    payload[index++] = CMD_TYPE_CONFIG;
+    payload[index++] = _TYPE_CMD_RESPONSE;
+    payload[index++] = ACTION_DATA;
+    payload[index++] = PARAM_LORA_PANEL_STATUS;
+
+    // DA-[B]: Node ID
+    payload[index++] = system_config.node_id;
+
+    // DA-[C]: Firmware Version (e.g., 0x10 = v1.0)
+    payload[index++] = 0x10;
+
+    // DA-[D]: Region & Channel No (e.g., 0x11 = Reg 1, Ch 1)
+    payload[index++] = 0x11;
+
+    // DA-[E]: Network ID (2 Bytes - MSB First)
+    uint16_t net_id = 1000;
+    payload[index++] = (net_id >> 8) & 0xFF;
+    payload[index++] = net_id & 0xFF;
+
+    // DA-[F]: UUID / MAC ID (8 Bytes)
+    uint8_t mac[8] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77};
+    memcpy(&payload[index], mac, 8);
+    index += 8;
+
+    // DA-[G]: Power ON Interruption Count
+    payload[index++] = 5; // Example count
+
+    // DA-[H]: Motor Status
+    payload[index++] = current_motor_state;
+
+    // DA-[I, J, K]: Voltages (2 Bytes Each)
+    float vr = 230, vy = 230, vb = 230;
+    zmpt_read_all(&vr, &vy, &vb);
+    
+    uint16_t v1 = (uint16_t)vr;
+    uint16_t v2 = (uint16_t)vy;
+    uint16_t v3 = (uint16_t)vb;
+    
+    payload[index++] = (v1 >> 8) & 0xFF; payload[index++] = v1 & 0xFF;
+    payload[index++] = (v2 >> 8) & 0xFF; payload[index++] = v2 & 0xFF;
+    payload[index++] = (v3 >> 8) & 0xFF; payload[index++] = v3 & 0xFF;
+
+    // DA-[L, M, N]: Temp, Humidity, Soil 
+    payload[index++] = 35; // 35C Temp
+    payload[index++] = 60; // 60% Hum
+    payload[index++] = 45; // 45% Soil
+
+    // DA-[O]: Reserved
+    payload[index++] = 0x00;
+
+    // DA-[P, Q]: Alarm 1 & Alarm 2 (2 Bytes Each)
+    payload[index++] = 0x00; payload[index++] = 0x00; // Alarm Register 1
+    payload[index++] = 0x00; payload[index++] = 0x00; // Alarm Register 2
+
+    // DA-[R]: Neighbor Count
+    uint8_t neighbor_count = 2;
+    payload[index++] = neighbor_count;
+
+    // DA-[S, T, ...]: Neighbor IDs (Loop based on count)
+    payload[index++] = 14;
+    payload[index++] = 15;
+
+    // Transmit to Gateway
+    network_send(target_id, PKT_TYPE_CMD, payload, index);
+    ESP_LOGI(TAG, "EXEC: Panel Status dispatched to Node %d (Len: %d bytes)", target_id, index);
+}
+
+
+void fnCheck_Phase_Loss(void) {
+    float vr = 0, vy = 0, vb = 0;
+    zmpt_read_all(&vr, &vy, &vb);
+    
+    // Check if any phase voltage drops below a critical 100V threshold
+    if (vr < 100.0 || vy < 100.0 || vb < 100.0) {
+        // Find the specific missing phase to report
+        uint32_t fault_val = (vr < 100.0) ? (uint32_t)vr : ((vy < 100.0) ? (uint32_t)vy : (uint32_t)vb);
+        
+        // Trigger Alarm: 0x01 (Phase Loss), 0x02 (Critical Severity)
+        fnTrigger_Alarm(0x01, 0x02, fault_val);
+        ESP_LOGE(TAG, "CRITICAL: Phase Loss Detected! Alarm Transmitted.");
+    }
+}
+
+
+static void fnSet_Device_ID(uint8_t target_id, uint8_t new_id) {
+    // 1. Save permanently to Flash and update live RAM
+    farmpulse_save_node_id(new_id);
+    system_config.node_id = new_id;
+    ESP_LOGW(TAG, "EXEC: Node ID permanently changed to %d", new_id);
+
+    // 2. Transmit Acknowledgment
+    uint8_t resp[5] = {CMD_TYPE_CONFIG, _TYPE_CMD_RESPONSE, ACTION_DATA, PARAM_DEVICE_ID, new_id};
+    network_send(target_id, PKT_TYPE_CMD, resp, 5);
+}
+
+static void fnGet_Device_ID(uint8_t target_id) {
+    uint8_t resp[5] = {CMD_TYPE_CONFIG, _TYPE_CMD_RESPONSE, ACTION_DATA, PARAM_DEVICE_ID, system_config.node_id};
+    network_send(target_id, PKT_TYPE_CMD, resp, 5);
+    ESP_LOGI(TAG, "EXEC: Node ID (%d) sent to Gateway", system_config.node_id);
+}
+
+
 /* App Packet Handler */
 void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len) {
     
@@ -201,6 +304,11 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
                                         fnSend_Sensor_Telemetry(src_id);
                                         break;
                                         
+                                    case PARAM_LORA_PANEL_STATUS:
+                                        ESP_LOGI(TAG, "RX: GET Panel Status Request");
+                                        fnSend_Panel_Status(src_id);
+                                        break;
+                                    
                                     case PARAM_LORA_MOTOR_CTRL:
                                         ESP_LOGI(TAG, "RX: GET Motor State Request");
                                         fnSend_Motor_State_Resp(src_id);

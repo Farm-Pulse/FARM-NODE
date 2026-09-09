@@ -58,7 +58,7 @@ void farmnode_application_task(void *arg) {
         // 2. Network Heartbeat Maintenance (Alive Status)
         // ---------------------------------------------------------
         if (--sec_until_heartbeat == 0) {
-            fnSend_Heartbeat();
+            fnSend_Heartbeat(0);
             sec_until_heartbeat = CONFIG_HEARTBEAT_INTERVAL; // Reset timer
         }
 
@@ -70,6 +70,8 @@ void farmnode_application_task(void *arg) {
             fnSend_Sensor_Telemetry(0); // 0 is Gateway ID
             sec_until_telemetry = CONFIG_TELEMETRY_INTERVAL; // Reset timer
         }
+
+        void fnCheck_Phase_Loss();
     }
 }
 
