@@ -30,7 +30,7 @@ static uint8_t current_motor_state = 0;
 static void fnSend_ND_Beacon(void) {
     uint8_t nd_payload[8];
     nd_payload[0] = STATUS_ND_BEACON; // e.g., 0x03
-    nd_payload[1] = MY_NODE_ID;       
+    nd_payload[1] = system_config.node_id;       
     // Pack other required ND data (Firmware version, PAN ID, etc.)
     
     // 0xFF is the Broadcast Address
