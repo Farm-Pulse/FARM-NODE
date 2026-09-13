@@ -10,7 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2c.h"
-#include "ads1115.h"
+#include "ads111x.h"
 
 static const char *TAG = "ADS1115";
 

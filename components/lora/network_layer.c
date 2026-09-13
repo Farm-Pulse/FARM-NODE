@@ -14,6 +14,7 @@
 #include "farmpulse_defs.h"
 #include "network_layer.h"
 #include "mac_layer.h"
+#include "farmpulse_config.h"
 
 static const char *TAG = "NETWORK";
 #define BROADCAST_ID 0xFF
@@ -23,7 +24,6 @@ static const char *TAG = "NETWORK";
 #define RSSI_THRESHOLD_MASTER -80  // Ignore Master weaker than -80 dBm
 
 static neighbor_entry_t neighbor_table[NEIGHBOR_TABLE_SIZE];
-static uint8_t my_node_id = CONFIG_FARMPULSE_NODE_ID;
 static uint8_t current_seq_num = 1; // EmSave standard starts at 1
 
 static SemaphoreHandle_t ack_wait_sem = NULL;
@@ -39,7 +39,7 @@ void network_register_cb(network_receive_cb_t cb) { app_rx_cb = cb; }
 static uint32_t millis() { return (uint32_t)(esp_timer_get_time() / 1000); }
 
 void network_init(void) {
-    ESP_LOGI(TAG, "Initializing EmSave Network Layer. My ID: %d", my_node_id);
+    ESP_LOGI(TAG, "Initializing EmSave Network Layer. My ID: %d", system_config.node_id);
     ack_wait_sem = xSemaphoreCreateBinary();
     tx_pipeline_mutex = xSemaphoreCreateMutex();
     
@@ -106,14 +106,14 @@ static uint8_t get_next_hop(uint8_t final_dest) {
     // 2. Context 3: Linear Hopping
     uint8_t best_candidate = 0xFF;
 
-    if (final_dest > my_node_id) { 
+    if (final_dest > system_config.node_id) { 
         // Upstream: Find HIGHEST neighbor ID that is <= Destination
         uint8_t highest_valid = 0;
         bool found = false;
         for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
             if (neighbor_table[i].status == NODE_CONNECTED) {
                 uint8_t nid = neighbor_table[i].node_id;
-                if (nid > my_node_id && nid <= final_dest) {
+                if (nid > system_config.node_id && nid <= final_dest) {
                     if (!found || nid > highest_valid) {
                         highest_valid = nid;
                         best_candidate = nid;
@@ -129,7 +129,7 @@ static uint8_t get_next_hop(uint8_t final_dest) {
         for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
             if (neighbor_table[i].status == NODE_CONNECTED) {
                 uint8_t nid = neighbor_table[i].node_id;
-                if (nid < my_node_id && nid >= final_dest) {
+                if (nid < system_config.node_id && nid >= final_dest) {
                     if (!found || nid < lowest_valid) {
                         lowest_valid = nid;
                         best_candidate = nid;
@@ -146,13 +146,13 @@ static uint8_t get_next_hop(uint8_t final_dest) {
 void send_ack(uint8_t target_node, uint8_t acked_seq_num) {
     farm_packet_t ack_pkt;
     ack_pkt.header.target_id = target_node; 
-    ack_pkt.header.sender_id = my_node_id;
-    ack_pkt.header.network_id = CONFIG_FARMPULSE_NETWORK_ID;
+    ack_pkt.header.sender_id = system_config.node_id;
+    ack_pkt.header.network_id = system_config.network_id;
     ack_pkt.header.seq_num = current_seq_num++; 
     ack_pkt.header.fcf = PKT_TYPE_ACK; 
     ack_pkt.header.hop_count = 1; 
     ack_pkt.header.final_dest_id = target_node;
-    ack_pkt.header.origin_src_id = my_node_id;
+    ack_pkt.header.origin_src_id = system_config.node_id;
     ack_pkt.payload[0] = acked_seq_num;
     ack_pkt.header.length = 10 + 1; 
     mac_tx(&ack_pkt);
@@ -181,7 +181,7 @@ void network_handle_packet(farm_packet_t *pkt, int8_t rssi) {
     update_neighbor(pkt->header.sender_id, rssi, pkt->header.seq_num);
 
     // 4. Filter: Is this packet addressed to me, or broadcast?
-    if (pkt->header.target_id == my_node_id || pkt->header.target_id == BROADCAST_ID) {
+    if (pkt->header.target_id == system_config.node_id || pkt->header.target_id == BROADCAST_ID) {
         
         uint8_t pkt_type = pkt->header.fcf & 0x0F;
 
@@ -200,7 +200,7 @@ void network_handle_packet(farm_packet_t *pkt, int8_t rssi) {
         }
 
         // 5. FINAL DESTINATION
-        if (pkt->header.final_dest_id == my_node_id || pkt->header.final_dest_id == BROADCAST_ID) {
+        if (pkt->header.final_dest_id == system_config.node_id || pkt->header.final_dest_id == BROADCAST_ID) {
             ESP_LOGD(TAG, "Packet Accepted (Type: 0x%02X)", pkt_type);
             if (app_rx_cb != NULL) {
                 app_rx_cb(pkt->header.origin_src_id, pkt_type, pkt->payload, pkt->header.length - 10);
@@ -219,7 +219,7 @@ void network_handle_packet(farm_packet_t *pkt, int8_t rssi) {
                     ESP_LOGW(TAG, "=================================================");
                              
                     pkt->header.target_id = next_hop;
-                    pkt->header.sender_id = my_node_id; 
+                    pkt->header.sender_id = system_config.node_id; 
                     
                     // --- THE CRITICAL BUG FIX ---
                     // We MUST assign a new sequence number from our own pool so the 
@@ -256,8 +256,8 @@ bool network_send(uint8_t dest_id, packet_type_t type, uint8_t *payload, uint8_t
 
     pkt.header.length = 10 + len;
     pkt.header.target_id = next_hop;
-    pkt.header.sender_id = my_node_id;
-    pkt.header.network_id = CONFIG_FARMPULSE_NETWORK_ID;
+    pkt.header.sender_id = system_config.node_id;
+    pkt.header.network_id = system_config.network_id;
     pkt.header.seq_num = current_seq_num++;
     
     pkt.header.fcf = (type & 0x0F);
@@ -267,7 +267,7 @@ bool network_send(uint8_t dest_id, packet_type_t type, uint8_t *payload, uint8_t
 
     pkt.header.hop_count = CONFIG_MESH_MAX_HOPS; 
     pkt.header.final_dest_id = dest_id;
-    pkt.header.origin_src_id = my_node_id;
+    pkt.header.origin_src_id = system_config.node_id;
     memcpy(pkt.payload, payload, len);
 
     bool requires_ack = (pkt.header.fcf & FCF_MASK_ACK_REQ);
