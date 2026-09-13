@@ -93,6 +93,19 @@ static void update_neighbor(uint8_t id, int8_t rssi, uint8_t rx_seq) {
     }
 }
 
+
+void get_neighbour_ids(uint8_t *buffer, uint8_t *count) {
+    // NOte: This function only provide the higher Ids of the neighbor table from myaddr. The lower IDs are not included in this list.
+    uint8_t idx = 0;
+    for (int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
+        if (neighbor_table[i].node_id > system_config.node_id && neighbor_table[i].status == NODE_CONNECTED) {
+            buffer[idx++] = neighbor_table[i].node_id;
+        }
+    }
+    *count = idx;
+}
+
+
 // --- TRUE EMSAVE HUNTING ALGORITHM ---
 static uint8_t get_next_hop(uint8_t final_dest) {
     if (final_dest == BROADCAST_ID) return BROADCAST_ID;

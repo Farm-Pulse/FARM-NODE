@@ -3,6 +3,7 @@ idf_component_register(
         "esp_utils.c"
         "mac_layer.c"
         "network_layer.c"
+        "farmnode_parser.c"
     INCLUDE_DIRS
         "."
     REQUIRES
@@ -11,4 +12,5 @@ idf_component_register(
         esp_timer
         spi_flash
         farmpulse_config
+        sensors
 )
