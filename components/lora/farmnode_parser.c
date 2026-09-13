@@ -256,6 +256,16 @@ static void fnGet_Device_ID(uint8_t target_id) {
 }
 
 
+static void fnSet_Network_ID(uint8_t target_id, uint8_t nwk_id_msb, uint8_t nwk_id_lsb) {
+    uint16_t new_pan = (nwk_id_msb << 8) | nwk_id_lsb;
+    // Apply new PAN ID to network layer here
+    ESP_LOGW(TAG, "EXEC: Network PAN ID changed to 0x%04X", new_pan);
+
+    uint8_t resp[6] = {CMD_TYPE_CONFIG, _TYPE_CMD_RESPONSE, ACTION_DATA, 0x06, nwk_id_msb, nwk_id_lsb};
+    network_send(target_id, PKT_TYPE_CMD, resp, 6);
+}
+
+
 /* App Packet Handler */
 void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len) {
     
