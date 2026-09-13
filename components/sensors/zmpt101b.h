@@ -1,3 +1,9 @@
+/**
+ * @file zmpt101b.h
+ * @brief ZMPT101B module 3-Phase reading
+ * @author Shahid  
+ * @date March 2026
+ */
 #ifndef ZMPT101B_H
 #define ZMPT101B_H
 

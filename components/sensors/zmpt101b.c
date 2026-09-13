@@ -1,3 +1,10 @@
+/**
+ * @file zmpt101b.c
+ * @brief ZMPT101B module 3-Phase reading
+ * @author Shahid  
+ * @date March 2026
+ */
+
 #include <stdio.h>
 #include <math.h>
 #include "esp_timer.h"
@@ -5,11 +12,17 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_adc/adc_oneshot.h"
-
+#include "ads111x.h"
 #include "zmpt101b.h"
 
 static const char *TAG = "ZMPT101B";
 
+// --- Placeholder GPIOs for 3-Phase ZMPT101B ---
+// Adjust these ADC channels once your hardware team finalizes the pins
+#define ZMPT_ADC_UNIT      ADC_UNIT_1
+#define ZMPT_CH_R          ADC_CHANNEL_0 // GPIO 1 on ESP32-S3
+#define ZMPT_CH_Y          ADC_CHANNEL_1 // GPIO 2 on ESP32-S3
+#define ZMPT_CH_B          ADC_CHANNEL_2 // GPIO 3 on ESP32-S3
 // --- Safe LILYGO T3S3 v1.2 ADC2 Pins ---
 #define ZMPT_ADC_UNIT      ADC_UNIT_2
 #define ZMPT_CH_R          ADC_CHANNEL_1 // Physical GPIO 12 
