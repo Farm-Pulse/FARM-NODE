@@ -13,6 +13,55 @@
 
 static const char *TAG = "LoRa_PARSER";
 static uint8_t current_motor_state = 0; 
+static float cached_vr = 0.0f;
+static float cached_vy = 0.0f;
+static float cached_vb = 0.0f;
+static bool phase_r_ok = true;
+static bool phase_y_ok = true;
+static bool phase_b_ok = true;
+static uint8_t active_fault_mask = 0x00; // Bit 0: R, Bit 1: Y, Bit 2: B
+
+// 2. Add the unified background hardware poller
+void fnPoll_Sensors_Background(void) {
+    if (zmpt_read_all(&cached_vr, &cached_vy, &cached_vb) == ESP_OK) {
+        bool r_ok = (cached_vr >= 100.0f);
+        bool y_ok = (cached_vy >= 100.0f);
+        bool b_ok = (cached_vb >= 100.0f);
+        bool state_changed = false;
+
+        // Total Grid Failure Check
+        if (!r_ok && !y_ok && !b_ok && (phase_r_ok || phase_y_ok || phase_b_ok)) {
+            fnTrigger_Alarm(0x01, 0x02, (0 << 16) | 0); // Phase ID 0 = All
+            state_changed = true;
+        } 
+        else {
+            // Individual Phase Checks
+            if (r_ok != phase_r_ok) {
+                uint32_t val = (1 << 16) | (uint16_t)cached_vr;
+                fnTrigger_Alarm(r_ok ? 0x02 : 0x01, r_ok ? 0x01 : 0x02, val);
+                state_changed = true;
+            }
+            if (y_ok != phase_y_ok) {
+                uint32_t val = (2 << 16) | (uint16_t)cached_vy;
+                fnTrigger_Alarm(y_ok ? 0x02 : 0x01, y_ok ? 0x01 : 0x02, val);
+                state_changed = true;
+            }
+            if (b_ok != phase_b_ok) {
+                uint32_t val = (3 << 16) | (uint16_t)cached_vb;
+                fnTrigger_Alarm(b_ok ? 0x02 : 0x01, b_ok ? 0x01 : 0x02, val);
+                state_changed = true;
+            }
+        }
+
+        phase_r_ok = r_ok;
+        phase_y_ok = y_ok;
+        phase_b_ok = b_ok;
+
+        if (state_changed) {
+            fnSend_Sensor_Telemetry(0); 
+        }
+    }
+}
 
 
 void fnSend_ND_Beacon(void) {
@@ -27,32 +76,30 @@ void fnSend_ND_Beacon(void) {
 }
 
 
+//Update the existing telemetry function to be non-blocking
 void fnSend_Sensor_Telemetry(uint8_t target_id) {
     sensor_telemetry_t tele;
     
-    // Read physical sensors
-    float vr = 0, vy = 0, vb = 0; 
-    zmpt_read_all(&vr, &vy, &vb);
+    // Instantly pack the cached values without blocking the RF stack
+    tele.voltage_R = (uint16_t)cached_vr;
+    tele.voltage_Y = (uint16_t)cached_vy;
+    tele.voltage_B = (uint16_t)cached_vb;
     
-    tele.voltage_R = (uint16_t)vr;
-    tele.voltage_Y = (uint16_t)vy;
-    tele.voltage_B = (uint16_t)vb;
-    tele.current_R = 152; // Simulated 15.2A
-    tele.current_Y = 148;
-    tele.current_B = 155;
+    tele.current_R = 0; // Keep your existing simulated values for now
+    tele.current_Y = 0;
+    tele.current_B = 0;
     tele.power_active = ((tele.voltage_R * tele.current_R) / 10) + 
                         ((tele.voltage_Y * tele.current_Y) / 10) + 
                         ((tele.voltage_B * tele.current_B) / 10);
                         
-    tele.frequency    = 500; // 50.0 Hz
-    tele.power_factor = 980; // 0.98 PF
+    tele.frequency    = 500; 
+    tele.power_factor = 980; 
     tele.motor_status = current_motor_state;
-    tele.fault_mask   = 0x00;
+    tele.fault_mask = ( (phase_r_ok ? 0 : 1) | ((phase_y_ok ? 0 : 1) << 1) | ((phase_b_ok ? 0 : 1) << 2) );
     tele.supply_voltage = 3300; 
     
-    // Transmit requested data back to Gateway
     network_send(target_id, PKT_TYPE_DATA, (uint8_t*)&tele, sizeof(sensor_telemetry_t));
-    ESP_LOGI(TAG, "EXEC: Telemetry Data dispatched to Node %d", target_id);
+    ESP_LOGI(TAG, "EXEC: Fast Telemetry dispatched to Node %d", target_id);
 }
 
 
@@ -248,6 +295,7 @@ static void fnSet_Device_ID(uint8_t target_id, uint8_t new_id) {
     uint8_t resp[5] = {CMD_TYPE_CONFIG, _TYPE_CMD_RESPONSE, ACTION_DATA, PARAM_DEVICE_ID, new_id};
     network_send(target_id, PKT_TYPE_CMD, resp, 5);
 }
+
 
 static void fnGet_Device_ID(uint8_t target_id) {
     uint8_t resp[5] = {CMD_TYPE_CONFIG, _TYPE_CMD_RESPONSE, ACTION_DATA, PARAM_DEVICE_ID, system_config.node_id};

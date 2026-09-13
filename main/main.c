@@ -71,7 +71,9 @@ void farmnode_application_task(void *arg) {
             sec_until_telemetry = CONFIG_TELEMETRY_INTERVAL; // Reset timer
         }
 
-        void fnCheck_Phase_Loss();
+       // void fnCheck_Phase_Loss();
+       // This safely reads the ADS1115 every 1 second in the background.
+        fnPoll_Sensors_Background();
     }
 }
 
@@ -98,7 +100,9 @@ void app_main(void) {
         farmpulse_save_node_id(1);
     }
     
-    zmpt_init();
+    if (zmpt_init() != ESP_OK) {
+        ESP_LOGE(TAG, "Hardware Fault: ADS1115 I2C Initialization Failed!");
+    }
 
     ESP_LOGI(TAG, "==========================================");
     ESP_LOGI(TAG, "   FARMPULSE PHASE 5 - Node ID: %d", system_config.node_id);

@@ -13,4 +13,5 @@ void fnSend_Panel_Status(uint8_t target_id);
 void fnCheck_Phase_Loss(void);
 static void fnSet_Device_ID(uint8_t target_id, uint8_t new_id);
 static void fnGet_Device_ID(uint8_t target_id);
+void fnPoll_Sensors_Background(void);
 #endif // FARMNODE_PARSER_H
