@@ -16,6 +16,7 @@
 #include "DHT_temp.h"
 #include "DS18B20_temp.h"
 
+
 static const char *TAG = "APP_MAIN";
 
 //#define MY_NODE_ID       CONFIG_FARMPULSE_NODE_ID
@@ -111,7 +112,7 @@ void app_main(void) {
 
     // Initailise the DS18B20 Temp
     ds18b20_init();
-    
+
     ESP_LOGI(TAG, "==========================================");
     ESP_LOGI(TAG, "   FARMPULSE PHASE 5 - Node ID: %d", system_config.node_id);
     ESP_LOGI(TAG, "==========================================");

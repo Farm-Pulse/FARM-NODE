@@ -6,7 +6,7 @@
 #include "freertos/task.h"
 
 static const char *TAG = "DS18B20";
-#define DS_PIN GPIO_NUM_11 // Assign to your physical 1-Wire data pin
+#define DS_PIN GPIO_NUM_21 // Assign to your physical 1-Wire data pin
 
 void ds18b20_init(void) {
     gpio_reset_pin(DS_PIN);

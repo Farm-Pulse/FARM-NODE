@@ -67,6 +67,57 @@ void fnPoll_Sensors_Background(void) {
 }
 
 
+static void fnSend_Unified_Sensor_Data(uint8_t target_id) {
+    // 1. Execute physical hardware reads
+    float vr = 0.0f, vy = 0.0f, vb = 0.0f;
+    zmpt_read_all(&vr, &vy, &vb);
+
+    float soil_v = 0.0f;
+    uint8_t soil_pct = 0;
+    soil_sensor_read(&soil_v, &soil_pct); 
+
+    float air_temp = 0.0f, air_hum = 0.0f;
+    dht22_read(&air_temp, &air_hum);
+
+    float soil_temp = 0.0f;
+    fnRead_Soil_Temperature(&soil_temp);
+
+    // --- CHECKOUT LOGS: Print to Serial Monitor Before Sending ---
+    ESP_LOGI(TAG, "=== NODE HARDWARE READOUT ===");
+    ESP_LOGI(TAG, "Voltages : R:%.1f V | Y:%.1f V | B:%.1f V", vr, vy, vb);
+    ESP_LOGI(TAG, "Soil Mois: %d %% (Raw: %.2f V)", soil_pct, soil_v);
+    ESP_LOGI(TAG, "Air Temp : %.2f °C", air_temp);
+    ESP_LOGI(TAG, "Air Hum  : %.2f %%", air_hum);
+    ESP_LOGI(TAG, "Soil Temp: %.2f °C", soil_temp);
+    ESP_LOGI(TAG, "=============================");
+
+    // 2. Build Payload (23 Bytes Total)
+    uint8_t resp[23];
+    resp[0] = CMD_TYPE_CONFIG;
+    resp[1] = _TYPE_CMD_RESPONSE;
+    resp[2] = ACTION_DATA;
+    resp[3] = PARAM_SENSOR_DATA;
+
+    // Pack 16-bit ZMPT Voltages
+    uint16_t v1 = (uint16_t)vr, v2 = (uint16_t)vy, v3 = (uint16_t)vb;
+    resp[4] = (v1 >> 8) & 0xFF; resp[5] = v1 & 0xFF;
+    resp[6] = (v2 >> 8) & 0xFF; resp[7] = v2 & 0xFF;
+    resp[8] = (v3 >> 8) & 0xFF; resp[9] = v3 & 0xFF;
+
+    // Pack 8-bit Soil Moisture
+    resp[10] = soil_pct;
+
+    // Pack 32-bit Environmental Floats
+    *(float*)&resp[11] = air_temp;
+    *(float*)&resp[15] = air_hum;
+    *(float*)&resp[19] = soil_temp;
+
+    // 3. Transmit to Gateway
+    network_send(target_id, PKT_TYPE_CMD, resp, 23);
+    ESP_LOGI(TAG, "EXEC: Unified Sensor Data dispatched to Node %d", target_id);
+}
+
+
 static void fnSend_Temp_Data_Resp(uint8_t target_id) {
     float temp = 0.0f, hum = 0.0f;
     
@@ -273,10 +324,10 @@ void fnTrigger_Alarm(alarm_code_t alarm_code, uint8_t severity, uint32_t fault_v
 
 
 void fnSend_Panel_Status(uint8_t target_id) {
-    uint8_t payload[64] = {0}; // Safe buffer for massive payload
+    uint8_t payload[64] = {0}; 
     uint8_t index = 0;
 
-    // MAC Layer CMD Header (Offset 0 to 3)
+    // MAC Layer CMD Header 
     payload[index++] = CMD_TYPE_CONFIG;
     payload[index++] = _TYPE_CMD_RESPONSE;
     payload[index++] = ACTION_DATA;
@@ -288,27 +339,27 @@ void fnSend_Panel_Status(uint8_t target_id) {
     // DA-[C]: Firmware Version (e.g., 0x10 = v1.0)
     payload[index++] = 0x10;
 
-    // DA-[D]: Region & Channel No (e.g., 0x11 = Reg 1, Ch 1)
+    // DA-[D]: Region & Channel No 
     payload[index++] = 0x11;
 
-    // DA-[E]: Network ID (2 Bytes - MSB First)
+    // DA-[E]: Network ID 
     uint16_t net_id = 1000;
     payload[index++] = (net_id >> 8) & 0xFF;
     payload[index++] = net_id & 0xFF;
 
-    // DA-[F]: UUID / MAC ID (8 Bytes)
+    // DA-[F]: UUID / MAC ID
     uint8_t mac[8] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77};
     memcpy(&payload[index], mac, 8);
     index += 8;
 
     // DA-[G]: Power ON Interruption Count
-    payload[index++] = 5; // Example count
+    payload[index++] = 5; 
 
     // DA-[H]: Motor Status
     payload[index++] = current_motor_state;
 
-    // DA-[I, J, K]: Voltages (2 Bytes Each)
-    float vr = 230, vy = 230, vb = 230;
+    // DA-[I, J, K]: ZMPT Live Voltages
+    float vr = 0, vy = 0, vb = 0;
     zmpt_read_all(&vr, &vy, &vb);
     
     uint16_t v1 = (uint16_t)vr;
@@ -319,29 +370,35 @@ void fnSend_Panel_Status(uint8_t target_id) {
     payload[index++] = (v2 >> 8) & 0xFF; payload[index++] = v2 & 0xFF;
     payload[index++] = (v3 >> 8) & 0xFF; payload[index++] = v3 & 0xFF;
 
-    // DA-[L, M, N]: Temp, Humidity, Soil 
-    payload[index++] = 35; // 35C Temp
-    payload[index++] = 60; // 60% Hum
-    payload[index++] = 45; // 45% Soil
+    // DA-[L, M, N]: Live DHT22 and DS18B20 Environmental Data
+    float air_temp = 0.0f, air_hum = 0.0f, soil_temp = 0.0f;
+    
+    dht22_read(&air_temp, &air_hum); // DHT22 Read
+    fnRead_Soil_Temperature(&soil_temp);     // DS18B20 Read
+    
+    // Cast floats to 8-bit integers for the 1-byte payload slots
+    payload[index++] = (uint8_t)air_temp; 
+    payload[index++] = (uint8_t)air_hum;  
+    payload[index++] = (uint8_t)soil_temp; 
 
     // DA-[O]: Reserved
     payload[index++] = 0x00;
 
-    // DA-[P, Q]: Alarm 1 & Alarm 2 (2 Bytes Each)
-    payload[index++] = 0x00; payload[index++] = 0x00; // Alarm Register 1
-    payload[index++] = 0x00; payload[index++] = 0x00; // Alarm Register 2
+    // DA-[P, Q]: Alarm Registers
+    payload[index++] = 0x00; payload[index++] = 0x00; 
+    payload[index++] = 0x00; payload[index++] = 0x00; 
 
     // DA-[R]: Neighbor Count
     uint8_t neighbor_count = 2;
     payload[index++] = neighbor_count;
 
-    // DA-[S, T, ...]: Neighbor IDs (Loop based on count)
+    // DA-[S, T, ...]: Neighbor IDs
     payload[index++] = 14;
     payload[index++] = 15;
 
     // Transmit to Gateway
     network_send(target_id, PKT_TYPE_CMD, payload, index);
-    ESP_LOGI(TAG, "EXEC: Panel Status dispatched to Node %d (Len: %d bytes)", target_id, index);
+    ESP_LOGI(TAG, "EXEC: Live Panel Status dispatched to Node %d (Len: %d bytes)", target_id, index);
 }
 
 
@@ -449,6 +506,11 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
                                         fnSend_Panel_Status(src_id);
                                         break;
                                     
+                                    case PARAM_SENSOR_DATA:
+                                        ESP_LOGI(TAG, "RX: GET Unified Sensor Data Request");
+                                        fnSend_Unified_Sensor_Data(src_id);
+                                        break;
+
                                     case PARAM_LORA_MOTOR_CTRL:
                                         ESP_LOGI(TAG, "RX: GET Motor State Request");
                                         fnSend_Motor_State_Resp(src_id);
