@@ -9,6 +9,8 @@
 #include "farmnode_parser.h"
 #include "zmpt101b.h"
 #include "soil_sensor.h"
+#include "DHT_temp.h"
+#include "DS18B20_temp.h"
 
 #define RELAY_PIN 48
 
@@ -21,7 +23,6 @@ static float cached_vb = 0.0f;
 static bool phase_r_ok = true;
 static bool phase_y_ok = true;
 static bool phase_b_ok = true;
-static uint8_t active_fault_mask = 0x00; // Bit 0: R, Bit 1: Y, Bit 2: B
 
 // 2. Add the unified background hardware poller
 void fnPoll_Sensors_Background(void) {
@@ -63,6 +64,53 @@ void fnPoll_Sensors_Background(void) {
             fnSend_Sensor_Telemetry(0); 
         }
     }
+}
+
+
+static void fnSend_Temp_Data_Resp(uint8_t target_id) {
+    float temp = 0.0f, hum = 0.0f;
+    
+    // Read the hardware sensor
+    if (dht22_read(&temp, &hum) != ESP_OK) {
+        ESP_LOGW(TAG, "Warning: DHT22 sensor read failed.");
+    }
+    
+    // Build the response payload (13 Bytes Total to hold two 32-bit floats)
+    uint8_t resp_payload[13];
+    resp_payload[0] = CMD_TYPE_CONFIG;
+    resp_payload[1] = _TYPE_CMD_RESPONSE;
+    resp_payload[2] = ACTION_DATA;
+    resp_payload[3] = PARAM_TEMP_DATA_REQ;
+    
+    // Pack both 32-bit floats
+    *(float*)&resp_payload[4] = temp;           
+    *(float*)&resp_payload[8] = hum;           
+    
+    // Transmit back to Gateway
+    network_send(target_id, PKT_TYPE_CMD, resp_payload, 13);
+    ESP_LOGI(TAG, "EXEC: DHT22 Data (%.1fC, %.1f%%) dispatched to Node %d", temp, hum, target_id);
+}
+
+
+static void fnSend_Soil_Temp_Resp(uint8_t target_id) {
+    float soil_temp = 0.0f;
+    
+    if (fnRead_Soil_Temperature(&soil_temp) != ESP_OK) {
+        ESP_LOGW(TAG, "Warning: DS18B20 sensor read failed.");
+    }
+    
+    // Build the 9-Byte Response Payload (Header + 1 Float)
+    uint8_t resp[9];
+    resp[0] = CMD_TYPE_CONFIG;
+    resp[1] = _TYPE_CMD_RESPONSE;
+    resp[2] = ACTION_DATA;
+    resp[3] = PARAM_SOIL_TEMP_REQ;
+    
+    // Pack the 32-bit float safely
+    *(float*)&resp[4] = soil_temp;           
+    
+    network_send(target_id, PKT_TYPE_CMD, resp, 9);
+    ESP_LOGI(TAG, "EXEC: Soil Temp (%.2fC) sent to Node %d", soil_temp, target_id);
 }
 
 
@@ -372,8 +420,14 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
                                         
                                     case PARAM_LORA_CONFIG:
                                         ESP_LOGI(TAG, "RX: SET RF Config (Future implementation)");
+                                        fnSet_Network_ID(src_id, msg[4], msg[5]);
                                         break;
-                                        
+                                    
+                                    case PARAM_DEVICE_ID:
+                                        ESP_LOGI(TAG, "RX: SET Device ID Request");
+                                        fnSet_Device_ID(src_id, msg[4]); 
+                                        break;
+
                                     default:
                                         ESP_LOGW(TAG, "Unknown SET Parameter: 0x%02X", msg[3]);
                                         break;
@@ -403,6 +457,21 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
                                     case PARAM_SOIL_DATA_REQ: // NEW ROUTING HERE
                                         ESP_LOGI(TAG, "RX: GET Soil Sensor Request");
                                         fnSend_Soil_Data_Resp(src_id);
+                                        break;
+                                    
+                                    case PARAM_DEVICE_ID:
+                                        ESP_LOGI(TAG, "RX: GET Device ID Request");
+                                        fnGet_Device_ID(src_id);
+                                        break;
+
+                                    case PARAM_TEMP_DATA_REQ: // 0x20
+                                        ESP_LOGI(TAG, "RX: GET DHT22 Sensor Request");
+                                        fnSend_Temp_Data_Resp(src_id);
+                                        break;
+
+                                    case PARAM_SOIL_TEMP_REQ: // 0x21
+                                        ESP_LOGI(TAG, "RX: GET DS18B20 Soil Temp Request");
+                                        fnSend_Soil_Temp_Resp(src_id);
                                         break;
                                         
                                     default:

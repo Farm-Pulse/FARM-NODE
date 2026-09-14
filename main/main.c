@@ -13,6 +13,8 @@
 #include "zmpt101b.h"
 #include "farmpulse_config.h"
 #include "farmnode_parser.h"
+#include "DHT_temp.h"
+#include "DS18B20_temp.h"
 
 static const char *TAG = "APP_MAIN";
 
@@ -104,6 +106,12 @@ void app_main(void) {
         ESP_LOGE(TAG, "Hardware Fault: ADS1115 I2C Initialization Failed!");
     }
 
+    //Initalise the DHT22 Themperature sensor
+    dht22_init();
+
+    // Initailise the DS18B20 Temp
+    ds18b20_init();
+    
     ESP_LOGI(TAG, "==========================================");
     ESP_LOGI(TAG, "   FARMPULSE PHASE 5 - Node ID: %d", system_config.node_id);
     ESP_LOGI(TAG, "==========================================");

@@ -66,12 +66,14 @@ typedef enum {
     PARAM_LORA_PANEL_STATUS     = 0x06, //Request Panel Status Data
     PARAM_LORA_UUID             = 0x07, //Unique Identifier
     PARAM_ALARM_MASK            = 0x12, // Alarm notification bitmasks
-    PARAM_DEVICE_ID             = 0x05, // Change Node ID
+    PARAM_DEVICE_ID             = 0x08, // Change Node ID
     PARAM_SIGNATURE             = 0x09, // EEPROM Signature
     PARAM_RSSI_THRESH           = 0x0A, // RSSI Filter Threshold
     PARAM_HB_INTERVAL           = 0x10, // Heartbeat reporting period
     PARAM_METER_DATA_REQ        = 0x1E, // Force Telemetry Transmission
     PARAM_SOIL_DATA_REQ         = 0x1F, // Dedicated Soil Mositure request
+    PARAM_TEMP_DATA_REQ         = 0x20, // DHT22 Temperature data on request
+    PARAM_SOIL_TEMP_REQ         = 0x21, // DS18B20 Soil temperature on request
     PARAM_REBOOT                = 0xFF  // System Reboot
 } param_id_t;
 
