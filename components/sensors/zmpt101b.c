@@ -34,7 +34,7 @@ static const char *TAG = "ZMPT101B";
 #define SAMPLE_WINDOW_US             40000      // 40ms = 2 full 50Hz AC cycles
 #define CALIBRATION_FACTOR           576.47f     // Voltage scaling factor
 
-static ads1115_t ads_dev;
+ads1115_t ads_dev;
 static bool is_ads_ready = false;
 
 /**

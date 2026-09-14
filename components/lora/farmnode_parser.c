@@ -8,10 +8,12 @@
 #include "farmpulse_config.h"
 #include "farmnode_parser.h"
 #include "zmpt101b.h"
+#include "soil_sensor.h"
 
 #define RELAY_PIN 48
 
 static const char *TAG = "LoRa_PARSER";
+
 static uint8_t current_motor_state = 0; 
 static float cached_vr = 0.0f;
 static float cached_vy = 0.0f;
@@ -61,6 +63,32 @@ void fnPoll_Sensors_Background(void) {
             fnSend_Sensor_Telemetry(0); 
         }
     }
+}
+
+
+static void fnSend_Soil_Data_Resp(uint8_t target_id) {
+    float soil_v = 0.0f;
+    uint8_t soil_pct = 0;
+    
+    // Execute live hardware read from AIN3
+    if (soil_sensor_read(&soil_v, &soil_pct) != ESP_OK) {
+        ESP_LOGW(TAG, "Warning: Soil sensor read failed during GET request.");
+    }
+    
+    // Build the response payload (9 Bytes Total)
+    uint8_t resp_payload[9];
+    resp_payload[0] = CMD_TYPE_CONFIG;
+    resp_payload[1] = _TYPE_CMD_RESPONSE;
+    resp_payload[2] = ACTION_DATA;
+    resp_payload[3] = PARAM_SOIL_DATA_REQ;
+    resp_payload[4] = soil_pct;                   // 1 Byte: Moisture (0-100%)
+    
+    // Pack 32-bit float into the remaining 4 bytes using pointer casting
+    *(float*)&resp_payload[5] = soil_v;           
+    
+    // Transmit back to Gateway
+    network_send(target_id, PKT_TYPE_CMD, resp_payload, 9);
+    ESP_LOGI(TAG, "EXEC: Soil Data (%d%%, %.2fV) dispatched to Node %d", soil_pct, soil_v, target_id);
 }
 
 
@@ -370,6 +398,11 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
                                     case PARAM_LORA_MOTOR_CTRL:
                                         ESP_LOGI(TAG, "RX: GET Motor State Request");
                                         fnSend_Motor_State_Resp(src_id);
+                                        break;
+                                    
+                                    case PARAM_SOIL_DATA_REQ: // NEW ROUTING HERE
+                                        ESP_LOGI(TAG, "RX: GET Soil Sensor Request");
+                                        fnSend_Soil_Data_Resp(src_id);
                                         break;
                                         
                                     default:

@@ -71,6 +71,7 @@ typedef enum {
     PARAM_RSSI_THRESH           = 0x0A, // RSSI Filter Threshold
     PARAM_HB_INTERVAL           = 0x10, // Heartbeat reporting period
     PARAM_METER_DATA_REQ        = 0x1E, // Force Telemetry Transmission
+    PARAM_SOIL_DATA_REQ         = 0x1F, // Dedicated Soil Mositure request
     PARAM_REBOOT                = 0xFF  // System Reboot
 } param_id_t;
 
