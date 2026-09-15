@@ -358,41 +358,36 @@ void fnSend_Panel_Status(uint8_t target_id) {
     // DA-[H]: Motor Status
     payload[index++] = current_motor_state;
 
-    // DA-[I, J, K]: ZMPT Live Voltages
-    float vr = 0, vy = 0, vb = 0;
+    // DA-[I, J, K]: ZMPT Live Voltages (4 Bytes Each)
+    float vr = 0.0f, vy = 0.0f, vb = 0.0f;
     zmpt_read_all(&vr, &vy, &vb);
     
-    uint16_t v1 = (uint16_t)vr;
-    uint16_t v2 = (uint16_t)vy;
-    uint16_t v3 = (uint16_t)vb;
-    
-    payload[index++] = (v1 >> 8) & 0xFF; payload[index++] = v1 & 0xFF;
-    payload[index++] = (v2 >> 8) & 0xFF; payload[index++] = v2 & 0xFF;
-    payload[index++] = (v3 >> 8) & 0xFF; payload[index++] = v3 & 0xFF;
+    *(float*)&payload[index] = vr; index += sizeof(float);
+    *(float*)&payload[index] = vy; index += sizeof(float);
+    *(float*)&payload[index] = vb; index += sizeof(float);
 
-    // DA-[L, M, N]: Live DHT22 and DS18B20 Environmental Data
+    // DA-[L, M, N]: Live DHT22 and DS18B20 Environmental Data (4 Bytes Each)
     float air_temp = 0.0f, air_hum = 0.0f, soil_temp = 0.0f;
     
-    dht22_read(&air_temp, &air_hum); // DHT22 Read
-    fnRead_Soil_Temperature(&soil_temp);     // DS18B20 Read
+    dht22_read(&air_temp, &air_hum); 
+    fnRead_Soil_Temperature(&soil_temp);     
     
-    // Cast floats to 8-bit integers for the 1-byte payload slots
-    payload[index++] = (uint8_t)air_temp; 
-    payload[index++] = (uint8_t)air_hum;  
-    payload[index++] = (uint8_t)soil_temp; 
+    *(float*)&payload[index] = air_temp;  index += sizeof(float);
+    *(float*)&payload[index] = air_hum;   index += sizeof(float);
+    *(float*)&payload[index] = soil_temp; index += sizeof(float);
 
     // DA-[O]: Reserved
     payload[index++] = 0x00;
 
     // DA-[P, Q]: Alarm Registers
-    payload[index++] = 0x00; payload[index++] = 0x00; 
-    payload[index++] = 0x00; payload[index++] = 0x00; 
+    payload[index++] = 0x00; payload[index++] = 0x00; // Alarm Register 1
+    payload[index++] = 0x00; payload[index++] = 0x00; // Alarm Register 2
 
     // DA-[R]: Neighbor Count
     uint8_t neighbor_count = 2;
     payload[index++] = neighbor_count;
 
-    // DA-[S, T, ...]: Neighbor IDs
+    // DA-[S, T, ...]: Neighbor IDs (Offsets shifted automatically)
     payload[index++] = 14;
     payload[index++] = 15;
 

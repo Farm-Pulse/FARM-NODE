@@ -35,7 +35,7 @@ static const char *TAG = "APP_MAIN";
  */
 void farmnode_application_task(void *arg) {
     ESP_LOGI(TAG, "FarmNode RTOS Task Started.");
-
+    
     // Initialize precise RTOS tick tracking
     TickType_t last_wake_time = xTaskGetTickCount();
     const TickType_t loop_frequency = pdMS_TO_TICKS(1000); // 1-Second Master Tick

@@ -6,7 +6,7 @@
 #include "freertos/task.h"
 
 static const char *TAG = "DHT22";
-#define DHT_PIN GPIO_NUM_10
+#define DHT_PIN GPIO_NUM_16
 
 void dht22_init(void) {
     gpio_reset_pin(DHT_PIN);
