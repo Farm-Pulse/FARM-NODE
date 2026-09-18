@@ -28,6 +28,12 @@ static const char *TAG = "APP_MAIN";
 #define CONFIG_TELEMETRY_INTERVAL   300 // Send Sensor Data every 10 Minutes
 #define RELAY_PIN   48
 
+// Import variables from the parser
+extern volatile uint8_t pending_req_src;
+extern volatile bool flag_set_motor, flag_set_net_id, flag_set_dev_id;
+extern volatile uint8_t p_motor_val, p_net_val1, p_net_val2, p_dev_id;
+extern volatile bool flag_get_telemetry, flag_get_panel, flag_get_unified;
+extern volatile bool flag_get_motor, flag_get_soil, flag_get_dev_id, flag_get_temp, flag_get_soil_temp;
 
 /**
  * @brief Industrial RTOS Super Loop for the FarmNode.
@@ -46,6 +52,54 @@ void farmnode_application_task(void *arg) {
     uint32_t sec_until_telemetry = CONFIG_TELEMETRY_INTERVAL;
 
     while (1) {
+        // 1. Process SET Commands
+        if (flag_set_motor) {
+            flag_set_motor = false;
+            fnSet_Motor_Relay(pending_req_src, p_motor_val);
+        }
+        if (flag_set_net_id) {
+            flag_set_net_id = false;
+            fnSet_Network_ID(pending_req_src, p_net_val1, p_net_val2);
+        }
+        if (flag_set_dev_id) {
+            flag_set_dev_id = false;
+            fnSet_Device_ID(pending_req_src, p_dev_id);
+        }
+
+        // 2. Process GET Commands
+        if (flag_get_telemetry) {
+            flag_get_telemetry = false;
+            fnSend_Sensor_Telemetry(pending_req_src);
+        }
+        if (flag_get_panel) {
+            flag_get_panel = false;
+            fnSend_Panel_Status(pending_req_src);
+        }
+        if (flag_get_unified) {
+            flag_get_unified = false;
+            fnSend_Unified_Sensor_Data(pending_req_src);
+        }
+        if (flag_get_motor) {
+            flag_get_motor = false;
+            fnSend_Motor_State_Resp(pending_req_src);
+        }
+        if (flag_get_soil) {
+            flag_get_soil = false;
+            fnSend_Soil_Data_Resp(pending_req_src);
+        }
+        if (flag_get_dev_id) {
+            flag_get_dev_id = false;
+            fnGet_Device_ID(pending_req_src);
+        }
+        if (flag_get_temp) {
+            flag_get_temp = false;
+            fnSend_Temp_Data_Resp(pending_req_src);
+        }
+        if (flag_get_soil_temp) {
+            flag_get_soil_temp = false;
+            fnSend_Soil_Temp_Resp(pending_req_src);
+        }
+        
         // Block until exactly 1000ms has passed since the last unblock
         vTaskDelayUntil(&last_wake_time, loop_frequency);
 
@@ -98,9 +152,9 @@ void app_main(void) {
 
     farmpulse_config_init();
     
-    if (system_config.node_id != 1) {
-        ESP_LOGW(TAG, "Setting Node ID to 1...");
-        farmpulse_save_node_id(1);
+    if (system_config.node_id != 2) {
+        ESP_LOGW(TAG, "Setting Node ID to 2...");
+        farmpulse_save_node_id(2);
     }
     
     if (zmpt_init() != ESP_OK) {

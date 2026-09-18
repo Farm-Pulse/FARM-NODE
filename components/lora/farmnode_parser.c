@@ -24,6 +24,30 @@ static bool phase_r_ok = true;
 static bool phase_y_ok = true;
 static bool phase_b_ok = true;
 
+// --- Decoupling Flags & Payloads ---
+volatile uint8_t pending_req_src = 0; // Remembers who sent the command (e.g., Gateway)
+
+// SET Command Flags & Data
+volatile bool flag_set_motor  = false;
+volatile uint8_t p_motor_val  = 0;
+
+volatile bool flag_set_net_id = false;
+volatile uint8_t p_net_val1   = 0;
+volatile uint8_t p_net_val2   = 0;
+
+volatile bool flag_set_dev_id = false;
+volatile uint8_t p_dev_id     = 0;
+
+// GET Command Flags
+volatile bool flag_get_telemetry = false;
+volatile bool flag_get_panel     = false;
+volatile bool flag_get_unified   = false;
+volatile bool flag_get_motor     = false;
+volatile bool flag_get_soil      = false;
+volatile bool flag_get_dev_id    = false;
+volatile bool flag_get_temp      = false;
+volatile bool flag_get_soil_temp = false;
+
 // 2. Add the unified background hardware poller
 void fnPoll_Sensors_Background(void) {
     if (zmpt_read_all(&cached_vr, &cached_vy, &cached_vb) == ESP_OK) {
@@ -67,7 +91,7 @@ void fnPoll_Sensors_Background(void) {
 }
 
 
-static void fnSend_Unified_Sensor_Data(uint8_t target_id) {
+void fnSend_Unified_Sensor_Data(uint8_t target_id) {
     // 1. Execute physical hardware reads
     float vr = 0.0f, vy = 0.0f, vb = 0.0f;
     zmpt_read_all(&vr, &vy, &vb);
@@ -118,7 +142,7 @@ static void fnSend_Unified_Sensor_Data(uint8_t target_id) {
 }
 
 
-static void fnSend_Temp_Data_Resp(uint8_t target_id) {
+void fnSend_Temp_Data_Resp(uint8_t target_id) {
     float temp = 0.0f, hum = 0.0f;
     
     // Read the hardware sensor
@@ -143,7 +167,7 @@ static void fnSend_Temp_Data_Resp(uint8_t target_id) {
 }
 
 
-static void fnSend_Soil_Temp_Resp(uint8_t target_id) {
+void fnSend_Soil_Temp_Resp(uint8_t target_id) {
     float soil_temp = 0.0f;
     
     if (fnRead_Soil_Temperature(&soil_temp) != ESP_OK) {
@@ -165,7 +189,7 @@ static void fnSend_Soil_Temp_Resp(uint8_t target_id) {
 }
 
 
-static void fnSend_Soil_Data_Resp(uint8_t target_id) {
+void fnSend_Soil_Data_Resp(uint8_t target_id) {
     float soil_v = 0.0f;
     uint8_t soil_pct = 0;
     
@@ -261,7 +285,7 @@ void fnSend_Heartbeat(uint8_t target_id) {
  * @brief Responds to a Gateway GET request for the motor status.
  * @param target_id The Node ID to send the response back to (usually 0 for Gateway).
  */
-static void fnSend_Motor_State_Resp(uint8_t target_id) {
+void fnSend_Motor_State_Resp(uint8_t target_id) {
     uint8_t resp_payload[5];
     
     resp_payload[0] = CMD_TYPE_CONFIG;    // 0x05
@@ -275,7 +299,7 @@ static void fnSend_Motor_State_Resp(uint8_t target_id) {
 }
 
 
-static void fnSet_Motor_Relay(uint8_t target_id, uint8_t motor_action) {
+void fnSet_Motor_Relay(uint8_t target_id, uint8_t motor_action) {
     if (motor_action == 1) {
         current_motor_state = 1;
         gpio_set_level(RELAY_PIN, 1);
@@ -413,7 +437,7 @@ void fnCheck_Phase_Loss(void) {
 }
 
 
-static void fnSet_Device_ID(uint8_t target_id, uint8_t new_id) {
+void fnSet_Device_ID(uint8_t target_id, uint8_t new_id) {
     // 1. Save permanently to Flash and update live RAM
     farmpulse_save_node_id(new_id);
     system_config.node_id = new_id;
@@ -425,14 +449,14 @@ static void fnSet_Device_ID(uint8_t target_id, uint8_t new_id) {
 }
 
 
-static void fnGet_Device_ID(uint8_t target_id) {
+void fnGet_Device_ID(uint8_t target_id) {
     uint8_t resp[5] = {CMD_TYPE_CONFIG, _TYPE_CMD_RESPONSE, ACTION_DATA, PARAM_DEVICE_ID, system_config.node_id};
     network_send(target_id, PKT_TYPE_CMD, resp, 5);
     ESP_LOGI(TAG, "EXEC: Node ID (%d) sent to Gateway", system_config.node_id);
 }
 
 
-static void fnSet_Network_ID(uint8_t target_id, uint8_t nwk_id_msb, uint8_t nwk_id_lsb) {
+void fnSet_Network_ID(uint8_t target_id, uint8_t nwk_id_msb, uint8_t nwk_id_lsb) {
     uint16_t new_pan = (nwk_id_msb << 8) | nwk_id_lsb;
     // Apply new PAN ID to network layer here
     ESP_LOGW(TAG, "EXEC: Network PAN ID changed to 0x%04X", new_pan);
@@ -463,21 +487,30 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
                             
                             case ACTION_SET: // SET_CONFIG (0x01)
                             {
+                                pending_req_src = src_id; // Capture the sender ID
+
                                 // Level 5: Switch by Parameter ID (Offset 3)
                                 switch (msg[3]) {
                                     case PARAM_LORA_MOTOR_CTRL:
                                         ESP_LOGI(TAG, "RX: SET Motor Control");
-                                        fnSet_Motor_Relay(src_id, msg[4]); // msg[4] holds the ON/OFF payload
+                                        //fnSet_Motor_Relay(src_id, msg[4]); // msg[4] holds the ON/OFF payload
+                                        p_motor_val = msg[4];
+                                        flag_set_motor = true;
                                         break;
                                         
                                     case PARAM_LORA_CONFIG:
                                         ESP_LOGI(TAG, "RX: SET RF Config (Future implementation)");
-                                        fnSet_Network_ID(src_id, msg[4], msg[5]);
+                                        //fnSet_Network_ID(src_id, msg[4], msg[5]);
+                                        p_net_val1 = msg[4];
+                                        p_net_val2 = msg[5];
+                                        flag_set_net_id = true;
                                         break;
                                     
                                     case PARAM_DEVICE_ID:
                                         ESP_LOGI(TAG, "RX: SET Device ID Request");
-                                        fnSet_Device_ID(src_id, msg[4]); 
+                                        //fnSet_Device_ID(src_id, msg[4]); 
+                                        p_dev_id = msg[4];
+                                        flag_set_dev_id = true;
                                         break;
 
                                     default:
@@ -489,46 +522,56 @@ void app_packet_handler(uint8_t src_id, uint8_t type, uint8_t *msg, uint8_t len)
 
                             case ACTION_GET: // GET_CONFIG (0x02)
                             {
+                                pending_req_src = src_id; 
+
                                 // Level 5: Switch by Parameter ID (Offset 3)
                                 switch (msg[3]) {
                                     case PARAM_METER_DATA_REQ:
                                         ESP_LOGI(TAG, "RX: GET Sensor Telemetry Request");
-                                        fnSend_Sensor_Telemetry(src_id);
+                                        //fnSend_Sensor_Telemetry(src_id);
+                                        flag_get_telemetry = true;
                                         break;
                                         
                                     case PARAM_LORA_PANEL_STATUS:
                                         ESP_LOGI(TAG, "RX: GET Panel Status Request");
-                                        fnSend_Panel_Status(src_id);
+                                        //fnSend_Panel_Status(src_id);
+                                        flag_get_panel = true;
                                         break;
                                     
                                     case PARAM_SENSOR_DATA:
                                         ESP_LOGI(TAG, "RX: GET Unified Sensor Data Request");
-                                        fnSend_Unified_Sensor_Data(src_id);
+                                        //fnSend_Unified_Sensor_Data(src_id);
+                                        flag_get_unified = true;
                                         break;
 
                                     case PARAM_LORA_MOTOR_CTRL:
                                         ESP_LOGI(TAG, "RX: GET Motor State Request");
-                                        fnSend_Motor_State_Resp(src_id);
+                                        //fnSend_Motor_State_Resp(src_id);
+                                        flag_get_motor = true;
                                         break;
                                     
                                     case PARAM_SOIL_DATA_REQ: // NEW ROUTING HERE
                                         ESP_LOGI(TAG, "RX: GET Soil Sensor Request");
-                                        fnSend_Soil_Data_Resp(src_id);
+                                        //fnSend_Soil_Data_Resp(src_id);
+                                        flag_get_soil = true;
                                         break;
                                     
                                     case PARAM_DEVICE_ID:
                                         ESP_LOGI(TAG, "RX: GET Device ID Request");
-                                        fnGet_Device_ID(src_id);
+                                        //fnGet_Device_ID(src_id);
+                                        flag_get_dev_id = true;
                                         break;
 
                                     case PARAM_TEMP_DATA_REQ: // 0x20
                                         ESP_LOGI(TAG, "RX: GET DHT22 Sensor Request");
-                                        fnSend_Temp_Data_Resp(src_id);
+                                        //fnSend_Temp_Data_Resp(src_id);
+                                        flag_get_temp = true;
                                         break;
 
                                     case PARAM_SOIL_TEMP_REQ: // 0x21
                                         ESP_LOGI(TAG, "RX: GET DS18B20 Soil Temp Request");
-                                        fnSend_Soil_Temp_Resp(src_id);
+                                        //fnSend_Soil_Temp_Resp(src_id);
+                                        flag_get_soil_temp = true;
                                         break;
                                         
                                     default:
