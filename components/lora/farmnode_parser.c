@@ -6,15 +6,21 @@
 #include "network_layer.h"
 #include "farmpulse_defs.h"
 #include "farmpulse_config.h"
+#include "ads111x.h"
 #include "farmnode_parser.h"
 #include "zmpt101b.h"
 #include "soil_sensor.h"
 #include "DHT_temp.h"
 #include "DS18B20_temp.h"
 
-#define RELAY_PIN 48
+#ifndef BROADCAST_ID
+#define BROADCAST_ID 0xFF
+#endif
 
+#define RELAY_PIN 48
 static const char *TAG = "LoRa_PARSER";
+
+extern neighbor_entry_t neighbor_table[NEIGHBOR_TABLE_SIZE]; // From network_layer
 
 static uint8_t current_motor_state = 0; 
 static float cached_vr = 0.0f;
@@ -47,6 +53,34 @@ volatile bool flag_get_soil      = false;
 volatile bool flag_get_dev_id    = false;
 volatile bool flag_get_temp      = false;
 volatile bool flag_get_soil_temp = false;
+
+// Global device handle for the ADC
+static ads1115_t current_sensor;
+
+// Call this from your app_main() hardware init block
+void init_current_sensor(void) {
+    // Initialize I2C_NUM_0 with default ADDR pin tied to GND (0x48)
+    ads1115_init(&current_sensor, 0, ADS1115_ADDRESS_GND);
+}
+
+// Wrapper to interface with your ads1115_read_single_shot driver
+static uint16_t read_phase_current(ads1115_mux_t mux_channel) {
+    float voltage_out = 0.0f;
+    
+    // Read specific single-ended channel with +/- 2.048V PGA
+    esp_err_t err = ads1115_read_single_shot(&current_sensor, mux_channel, ADS1115_PGA_2_048V, &voltage_out);
+    
+    if (err == ESP_OK) {
+        // Convert CT burden voltage to Amps (Adjust the 10.0f multiplier based on your CT hardware ratio)
+        float amps = voltage_out * 10.0f; 
+        
+        // Multiply by 10 for the telemetry payload (e.g., 15.2A becomes 152)
+        return (uint16_t)(amps * 10.0f);
+    }
+    
+    return 0; // Return 0 amps if I2C read fails
+}
+
 
 // 2. Add the unified background hardware poller
 void fnPoll_Sensors_Background(void) {
@@ -217,28 +251,41 @@ void fnSend_Soil_Data_Resp(uint8_t target_id) {
 
 void fnSend_ND_Beacon(void) {
     uint8_t nd_payload[8];
-    nd_payload[0] = STATUS_ND_BEACON; // e.g., 0x03
-    nd_payload[1] = system_config.node_id;       
-    // Pack other required ND data (Firmware version, PAN ID, etc.)
+    uint8_t index = 0;
     
-    // 0xFF is the Broadcast Address
-    network_send(0xFF, PKT_TYPE_STATUS, nd_payload, sizeof(nd_payload));
-    ESP_LOGD(TAG, "Broadcasted ND Beacon.");
+    nd_payload[index++] = STATUS_ND_BEACON;
+    nd_payload[index++] = system_config.node_id; // Sender Node ID
+    nd_payload[index++] = 0x10;                  // Firmware v1.0
+    
+    // Pack 16-bit Network PAN ID
+    uint16_t pan_id = CONFIG_FARMPULSE_NETWORK_ID;
+    nd_payload[index++] = (pan_id >> 8) & 0xFF;
+    nd_payload[index++] = pan_id & 0xFF;
+    
+    network_send(BROADCAST_ID, PKT_TYPE_STATUS, nd_payload, index);
+    ESP_LOGD(TAG, "Broadcasted Live ND Beacon.");
 }
 
 
 //Update the existing telemetry function to be non-blocking
 void fnSend_Sensor_Telemetry(uint8_t target_id) {
-    sensor_telemetry_t tele;
+    sensor_telemetry_t tele = {0};
     
+    // Read physical ZMPT voltages
+    float vr = 0, vy = 0, vb = 0; 
+    zmpt_read_all(&vr, &vy, &vb);
+
     // Instantly pack the cached values without blocking the RF stack
-    tele.voltage_R = (uint16_t)cached_vr;
-    tele.voltage_Y = (uint16_t)cached_vy;
-    tele.voltage_B = (uint16_t)cached_vb;
+    tele.voltage_R = (uint16_t)vr;
+    tele.voltage_Y = (uint16_t)vy;
+    tele.voltage_B = (uint16_t)vb;
     
-    tele.current_R = 0; // Keep your existing simulated values for now
-    tele.current_Y = 0;
-    tele.current_B = 0;
+    // Read physical ADS1115 currents (Replace 'ads1115_read_channel' with your actual function)
+    tele.current_R = read_phase_current(ADS1115_MUX_SINGLE_0);
+    tele.current_Y = read_phase_current(ADS1115_MUX_SINGLE_1);
+    tele.current_B = read_phase_current(ADS1115_MUX_SINGLE_2);
+
+    // Calculate live active power (Multiply first to prevent integer division precision loss)
     tele.power_active = ((tele.voltage_R * tele.current_R) / 10) + 
                         ((tele.voltage_Y * tele.current_Y) / 10) + 
                         ((tele.voltage_B * tele.current_B) / 10);
@@ -246,7 +293,7 @@ void fnSend_Sensor_Telemetry(uint8_t target_id) {
     tele.frequency    = 500; 
     tele.power_factor = 980; 
     tele.motor_status = current_motor_state;
-    tele.fault_mask = ( (phase_r_ok ? 0 : 1) | ((phase_y_ok ? 0 : 1) << 1) | ((phase_b_ok ? 0 : 1) << 2) );
+    tele.fault_mask = 0x00; //((phase_r_ok ? 0 : 1) | ((phase_y_ok ? 0 : 1) << 1) | ((phase_b_ok ? 0 : 1) << 2) );
     tele.supply_voltage = 3300; 
     
     network_send(target_id, PKT_TYPE_DATA, (uint8_t*)&tele, sizeof(sensor_telemetry_t));
@@ -259,25 +306,37 @@ void fnSend_Sensor_Telemetry(uint8_t target_id) {
  *        Informs the Gateway of node health, motor state, and routing neighbors.
  */
 void fnSend_Heartbeat(uint8_t target_id) {
-    uint8_t hb_payload[32]; 
+    uint8_t hb_payload[32] = {0}; 
     uint8_t index = 0;
     
+    // 1. Pack the standard HB data with real metrics[cite: 1]
     hb_payload[index++] = STATUS_NORMAL_HB;   
-    hb_payload[index++] = 65;                 
-    hb_payload[index++] = 1;                  
-    hb_payload[index++] = current_motor_state;
     
-    uint8_t simulated_neighbor_count = 2;
-    uint8_t simulated_neighbors[2]   = {14, 15}; 
+    // Get actual RSSI of the target (Gateway/Parent) if it exists in our table
+    int parent_idx = find_neighbor_index(target_id);
+    uint8_t real_rssi = (parent_idx != -1) ? (uint8_t)(abs(neighbor_table[parent_idx].rssi)) : 0;
     
-    hb_payload[index++] = simulated_neighbor_count; 
-    for(uint8_t i = 0; i < simulated_neighbor_count; i++) {
-        hb_payload[index++] = simulated_neighbors[i];
+    hb_payload[index++] = real_rssi;                 // Real RSSI with parent
+    hb_payload[index++] = 1;                         // Current Hop Count
+    hb_payload[index++] = current_motor_state;       // Real Motor State
+    
+    // 2. Fetch Live Neighbor Table Data[cite: 1]
+    uint8_t active_neighbors = 0;
+    uint8_t count_index = index++; // Save this index to write the total count later
+    
+    for(int i = 0; i < NEIGHBOR_TABLE_SIZE; i++) {
+        if (neighbor_table[i].status == NODE_CONNECTED) {
+            hb_payload[index++] = neighbor_table[i].node_id;
+            active_neighbors++;
+            if (active_neighbors >= 15) break; // Prevent payload overflow
+        }
     }
     
-    // Blast the Status packet to the specific target
+    // Go back and write the actual number of connected neighbors[cite: 1]
+    hb_payload[count_index] = active_neighbors; 
+    
     network_send(target_id, PKT_TYPE_STATUS, hb_payload, index);
-    ESP_LOGI(TAG, "Transmitted Normal HB to Node %d. (Length: %d bytes)", target_id, index);
+    ESP_LOGI(TAG, "Transmitted Real HB to Node %d (Neighbors: %d)", target_id, active_neighbors);
 }
 
 

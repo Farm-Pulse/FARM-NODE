@@ -93,13 +93,17 @@ void mac_init(void) {
     ESP_ERROR_CHECK(sx127x_set_opmod(SX127X_MODE_SLEEP, SX127X_MODULATION_LORA, &lora_device));
     ESP_ERROR_CHECK(sx127x_set_frequency(865000000, &lora_device));
     ESP_ERROR_CHECK(sx127x_lora_reset_fifo(&lora_device));
+    // Receiver Sensitivity
     ESP_ERROR_CHECK(sx127x_rx_set_lna_boost_hf(true, &lora_device));
     ESP_ERROR_CHECK(sx127x_rx_set_lna_gain(SX127X_LNA_GAIN_G1, &lora_device));
+    // Maximize PA_BOOST to +20 dBm
     ESP_ERROR_CHECK(sx127x_tx_set_pa_config(SX127X_PA_PIN_BOOST, 14, &lora_device));
-    ESP_ERROR_CHECK(sx127x_lora_set_bandwidth(SX127X_BW_125000, &lora_device));
-    ESP_ERROR_CHECK(sx127x_lora_set_spreading_factor(SX127X_SF_9, &lora_device));
     
-    sx127x_tx_header_t header = { .enable_crc = true, .coding_rate = SX127X_CR_4_5 };
+    ESP_ERROR_CHECK(sx127x_lora_set_bandwidth(SX127X_BW_125000, &lora_device)); //125000
+    // Spreading Factor
+    ESP_ERROR_CHECK(sx127x_lora_set_spreading_factor(SX127X_SF_10, &lora_device));
+    
+    sx127x_tx_header_t header = { .enable_crc = true, .coding_rate = SX127X_CR_4_6 };
     ESP_ERROR_CHECK(sx127x_lora_tx_set_explicit_header(&header, &lora_device));
 
     // Callback
@@ -138,7 +142,7 @@ bool mac_tx(farm_packet_t *packet) {
     
     // 3. WAIT for Interrupt
     bool success = false;
-    if (xSemaphoreTake(tx_done_sem, pdMS_TO_TICKS(2000)) == pdTRUE) {
+    if (xSemaphoreTake(tx_done_sem, pdMS_TO_TICKS(5000)) == pdTRUE) {
         ESP_LOGI(TAG, "TX Complete (ISR)");
         success = true;
     } else {
