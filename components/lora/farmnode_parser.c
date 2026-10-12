@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
-
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "network_layer.h"
@@ -17,12 +18,17 @@
 #define BROADCAST_ID 0xFF
 #endif
 
-#define RELAY_PIN 48
+#define RELAY_START_PIN 48
+#define RELAY_STOP_PIN  15
+
 static const char *TAG = "LoRa_PARSER";
 
 extern neighbor_entry_t neighbor_table[NEIGHBOR_TABLE_SIZE]; // From network_layer
 
 static uint8_t current_motor_state = 0; 
+// A single lock to prevent sending a Start and Stop pulse at the exact same time
+static TaskHandle_t relay_pulse_handle = NULL;
+
 static float cached_vr = 0.0f;
 static float cached_vy = 0.0f;
 static float cached_vb = 0.0f;
@@ -56,6 +62,32 @@ volatile bool flag_get_soil_temp = false;
 
 // Global device handle for the ADC
 static ads1115_t current_sensor;
+
+// 1. The Active-LOW 2-Second Pulse Task
+static void relay_pulse_task(void *pvParameters) {
+    int action = (int)(intptr_t)pvParameters; 
+    
+    // Action >= 1 means START, Action == 0 means STOP
+    int target_pin = (action >= 1) ? RELAY_START_PIN : RELAY_STOP_PIN;
+
+    ESP_LOGI(TAG, "PULSE TRIGGERED: GPIO %d -> LOW (0) for 2 seconds.", target_pin);
+    
+    // Pull LOW to energize the Active-LOW relay
+    gpio_set_level(target_pin, 0);
+
+    // Hold for exactly 2 seconds
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    ESP_LOGI(TAG, "PULSE COMPLETE: GPIO %d -> HIGH (1).", target_pin);
+    
+    // Push HIGH to de-energize the Active-LOW relay
+    gpio_set_level(target_pin, 1);
+    
+    // Release the task lock
+    relay_pulse_handle = NULL;
+    vTaskDelete(NULL);
+}
+
 
 // Call this from your app_main() hardware init block
 void init_current_sensor(void) {
@@ -359,26 +391,46 @@ void fnSend_Motor_State_Resp(uint8_t target_id) {
 
 
 void fnSet_Motor_Relay(uint8_t target_id, uint8_t motor_action) {
-    if (motor_action == 1) {
-        current_motor_state = 1;
-        gpio_set_level(RELAY_PIN, 1);
-        ESP_LOGI(TAG, "EXEC: Motor turned ON");
-    } else if (motor_action == 0) {
-        current_motor_state = 0;
-        gpio_set_level(RELAY_PIN, 0);
-        ESP_LOGI(TAG, "EXEC: Motor turned OFF");
+    // if (motor_action == 1) {
+    //     current_motor_state = 1;
+    //     gpio_set_level(RELAY_PIN, 1);
+    //     ESP_LOGI(TAG, "EXEC: Motor turned ON");
+    // } else if (motor_action == 0) {
+    //     current_motor_state = 0;
+    //     gpio_set_level(RELAY_PIN, 0);
+    //     ESP_LOGI(TAG, "EXEC: Motor turned OFF");
+    // }
+
+    // // Prepare and send the RESP frame back to the requester (Gateway)
+    // uint8_t resp_payload[5];
+    // resp_payload[0] = CMD_TYPE_CONFIG;
+    // resp_payload[1] = _TYPE_CMD_RESPONSE;
+    // resp_payload[2] = ACTION_DATA;
+    // resp_payload[3] = PARAM_LORA_MOTOR_CTRL;
+    // resp_payload[4] = current_motor_state;
+
+    // network_send(target_id, PKT_TYPE_CMD, resp_payload, 5);
+    // ESP_LOGI(TAG, "EXEC: Motor State (%d) Response dispatched to Gateway.", current_motor_state);
+    
+    if (relay_pulse_handle != NULL) {
+        ESP_LOGW(TAG, "Ignored command: A relay pulse is already in progress!");
+    } else {
+        // Update the logical state so the Cloud knows the motor is running/stopped
+        current_motor_state = (motor_action >= 1) ? 1 : 0;
+        
+        // Spawn the asynchronous 2-second Active-LOW pulse
+        xTaskCreate(relay_pulse_task, "relay_pulse", 2048, (void *)(intptr_t)motor_action, 4, &relay_pulse_handle);
     }
 
-    // Prepare and send the RESP frame back to the requester (Gateway)
+    // Instantly transmit the acknowledgment back to the Gateway
     uint8_t resp_payload[5];
     resp_payload[0] = CMD_TYPE_CONFIG;
     resp_payload[1] = _TYPE_CMD_RESPONSE;
     resp_payload[2] = ACTION_DATA;
-    resp_payload[3] = PARAM_LORA_MOTOR_CTRL;
-    resp_payload[4] = current_motor_state;
-
+    resp_payload[3] = PARAM_LORA_MOTOR_CTRL; 
+    resp_payload[4] = current_motor_state;   // Send back 1 (ON) or 0 (OFF)
+    
     network_send(target_id, PKT_TYPE_CMD, resp_payload, 5);
-    ESP_LOGI(TAG, "EXEC: Motor State (%d) Response dispatched to Gateway.", current_motor_state);
 }
 
 

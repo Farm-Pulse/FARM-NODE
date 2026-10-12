@@ -26,7 +26,8 @@ static const char *TAG = "APP_MAIN";
 #define CONFIG_ND_BEACON_INTERVAL   30  // Broadcast Discovery every 30s
 #define CONFIG_HEARTBEAT_INTERVAL   500 // Send Alive Status every 5 Minutes
 #define CONFIG_TELEMETRY_INTERVAL   2000 // Send Sensor Data every 10 Minutes
-#define RELAY_PIN   48
+#define RELAY1_PIN     48
+#define RELAY2_PIN     15
 
 // Import variables from the parser
 extern volatile uint8_t pending_req_src;
@@ -152,9 +153,9 @@ void app_main(void) {
 
     farmpulse_config_init();
     
-    if (system_config.node_id != 1) {
+    if (system_config.node_id != 2) {
         ESP_LOGW(TAG, "Setting Node ID to 2...");
-        farmpulse_save_node_id(1);
+        farmpulse_save_node_id(2);
     }
     
     if (zmpt_init() != ESP_OK) {
@@ -172,9 +173,19 @@ void app_main(void) {
     ESP_LOGI(TAG, "==========================================");
 
     // --- INITIALIZE PHYSICAL HARDWARE ---
-    gpio_reset_pin(RELAY_PIN);
-    gpio_set_direction(RELAY_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_level(RELAY_PIN, 0); // Ensure motor is OFF on boot
+    // gpio_reset_pin(RELAY_PIN);
+    // gpio_set_direction(RELAY_PIN, GPIO_MODE_OUTPUT);
+    // gpio_set_level(RELAY_PIN, 0); // Ensure motor is OFF on boot
+
+    // Relay 1 (GPIO 48) - Normally OFF
+    gpio_reset_pin(RELAY1_PIN);
+    gpio_set_direction(RELAY1_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(RELAY1_PIN, 1); 
+
+    // Relay 2 (GPIO 16) - Normally ON
+    gpio_reset_pin(RELAY2_PIN);
+    gpio_set_direction(RELAY2_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(RELAY2_PIN, 1);
 
     mac_init();     
     network_init(); 

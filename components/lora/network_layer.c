@@ -72,7 +72,7 @@ static void update_neighbor(uint8_t id, int8_t rssi, uint8_t rx_seq) {
     // TEMPORARY BENCH TEST: FORCE MESH HOPPING THROUGH NODE 1
     // =================================================================
     // if (system_config.node_id == 0 && id == 2) return; 
-     //if (system_config.node_id == 2 && id == 0) return; 
+    // if (system_config.node_id == 2 && id == 0) return; 
     // =================================================================
 
     int idx = find_neighbor_index(id);
@@ -188,6 +188,7 @@ void send_ack(uint8_t target_node, uint8_t acked_seq_num) {
     ack_pkt.header.length = 10 + 1; 
     mac_tx(&ack_pkt);
 }
+
 
 void network_handle_packet(farm_packet_t *pkt, int8_t rssi)
 {
