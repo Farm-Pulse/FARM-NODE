@@ -13,6 +13,9 @@
 #include "zmpt101b.h"
 #include "farmpulse_config.h"
 #include "farmnode_parser.h"
+#include "DHT_temp.h"
+#include "DS18B20_temp.h"
+
 
 static const char *TAG = "APP_MAIN";
 
@@ -21,10 +24,17 @@ static const char *TAG = "APP_MAIN";
 
 // --- Configurable Timeouts (in seconds) ---
 #define CONFIG_ND_BEACON_INTERVAL   30  // Broadcast Discovery every 30s
-#define CONFIG_HEARTBEAT_INTERVAL   100 // Send Alive Status every 5 Minutes
-#define CONFIG_TELEMETRY_INTERVAL   300 // Send Sensor Data every 10 Minutes
-#define RELAY_PIN   48
+#define CONFIG_HEARTBEAT_INTERVAL   500 // Send Alive Status every 5 Minutes
+#define CONFIG_TELEMETRY_INTERVAL   2000 // Send Sensor Data every 10 Minutes
+#define RELAY1_PIN     48
+#define RELAY2_PIN     15
 
+// Import variables from the parser
+extern volatile uint8_t pending_req_src;
+extern volatile bool flag_set_motor, flag_set_net_id, flag_set_dev_id;
+extern volatile uint8_t p_motor_val, p_net_val1, p_net_val2, p_dev_id;
+extern volatile bool flag_get_telemetry, flag_get_panel, flag_get_unified;
+extern volatile bool flag_get_motor, flag_get_soil, flag_get_dev_id, flag_get_temp, flag_get_soil_temp;
 
 /**
  * @brief Industrial RTOS Super Loop for the FarmNode.
@@ -32,17 +42,65 @@ static const char *TAG = "APP_MAIN";
  */
 void farmnode_application_task(void *arg) {
     ESP_LOGI(TAG, "FarmNode RTOS Task Started.");
-
+    
     // Initialize precise RTOS tick tracking
     TickType_t last_wake_time = xTaskGetTickCount();
-    const TickType_t loop_frequency = pdMS_TO_TICKS(1000); // 1-Second Master Tick
+    const TickType_t loop_frequency = pdMS_TO_TICKS(100); // 1-Second Master Tick
 
     // Independent Counters for Network Maintenance
-    uint32_t sec_until_nd_beacon = CONFIG_ND_BEACON_INTERVAL;
-    uint32_t sec_until_heartbeat = CONFIG_HEARTBEAT_INTERVAL;
-    uint32_t sec_until_telemetry = CONFIG_TELEMETRY_INTERVAL;
+    uint32_t sec_until_nd_beacon = CONFIG_ND_BEACON_INTERVAL * 10;
+    uint32_t sec_until_heartbeat = CONFIG_HEARTBEAT_INTERVAL * 10;
+    uint32_t sec_until_telemetry = CONFIG_TELEMETRY_INTERVAL * 10;
 
     while (1) {
+        // 1. Process SET Commands
+        if (flag_set_motor) {
+            flag_set_motor = false;
+            fnSet_Motor_Relay(pending_req_src, p_motor_val);
+        }
+        if (flag_set_net_id) {
+            flag_set_net_id = false;
+            fnSet_Network_ID(pending_req_src, p_net_val1, p_net_val2);
+        }
+        if (flag_set_dev_id) {
+            flag_set_dev_id = false;
+            fnSet_Device_ID(pending_req_src, p_dev_id);
+        }
+
+        // 2. Process GET Commands
+        if (flag_get_telemetry) {
+            flag_get_telemetry = false;
+            fnSend_Sensor_Telemetry(pending_req_src);
+        }
+        if (flag_get_panel) {
+            flag_get_panel = false;
+            fnSend_Panel_Status(pending_req_src);
+        }
+        if (flag_get_unified) {
+            flag_get_unified = false;
+            fnSend_Unified_Sensor_Data(pending_req_src);
+        }
+        if (flag_get_motor) {
+            flag_get_motor = false;
+            fnSend_Motor_State_Resp(pending_req_src);
+        }
+        if (flag_get_soil) {
+            flag_get_soil = false;
+            fnSend_Soil_Data_Resp(pending_req_src);
+        }
+        if (flag_get_dev_id) {
+            flag_get_dev_id = false;
+            fnGet_Device_ID(pending_req_src);
+        }
+        if (flag_get_temp) {
+            flag_get_temp = false;
+            fnSend_Temp_Data_Resp(pending_req_src);
+        }
+        if (flag_get_soil_temp) {
+            flag_get_soil_temp = false;
+            fnSend_Soil_Temp_Resp(pending_req_src);
+        }
+        
         // Block until exactly 1000ms has passed since the last unblock
         vTaskDelayUntil(&last_wake_time, loop_frequency);
 
@@ -51,7 +109,7 @@ void farmnode_application_task(void *arg) {
         // ---------------------------------------------------------
         if (--sec_until_nd_beacon == 0) {
             fnSend_ND_Beacon();
-            sec_until_nd_beacon = CONFIG_ND_BEACON_INTERVAL; // Reset timer
+            sec_until_nd_beacon = CONFIG_ND_BEACON_INTERVAL * 10; // Reset timer
         }
 
         // ---------------------------------------------------------
@@ -59,7 +117,7 @@ void farmnode_application_task(void *arg) {
         // ---------------------------------------------------------
         if (--sec_until_heartbeat == 0) {
             fnSend_Heartbeat(0);
-            sec_until_heartbeat = CONFIG_HEARTBEAT_INTERVAL; // Reset timer
+            sec_until_heartbeat = CONFIG_HEARTBEAT_INTERVAL * 10; // Reset timer
         }
 
         // ---------------------------------------------------------
@@ -68,10 +126,12 @@ void farmnode_application_task(void *arg) {
         if (--sec_until_telemetry == 0) {
             ESP_LOGI(TAG, "Periodic Trigger: Pushing 3-Phase Data to Gateway");
             fnSend_Sensor_Telemetry(0); // 0 is Gateway ID
-            sec_until_telemetry = CONFIG_TELEMETRY_INTERVAL; // Reset timer
+            sec_until_telemetry = CONFIG_TELEMETRY_INTERVAL * 10; // Reset timer
         }
 
-        void fnCheck_Phase_Loss();
+       // void fnCheck_Phase_Loss();
+       // This safely reads the ADS1115 every 1 second in the background.
+        fnPoll_Sensors_Background();
     }
 }
 
@@ -93,21 +153,39 @@ void app_main(void) {
 
     farmpulse_config_init();
     
-    if (system_config.node_id != 1) {
-        ESP_LOGW(TAG, "Setting Node ID to 1...");
-        farmpulse_save_node_id(1);
+    if (system_config.node_id != 2) {
+        ESP_LOGW(TAG, "Setting Node ID to 2...");
+        farmpulse_save_node_id(2);
     }
     
-    zmpt_init();
+    if (zmpt_init() != ESP_OK) {
+        ESP_LOGE(TAG, "Hardware Fault: ADS1115 I2C Initialization Failed!");
+    }
+
+    //Initalise the DHT22 Themperature sensor
+    dht22_init();
+
+    // Initailise the DS18B20 Temp
+    ds18b20_init();
 
     ESP_LOGI(TAG, "==========================================");
     ESP_LOGI(TAG, "   FARMPULSE PHASE 5 - Node ID: %d", system_config.node_id);
     ESP_LOGI(TAG, "==========================================");
 
     // --- INITIALIZE PHYSICAL HARDWARE ---
-    gpio_reset_pin(RELAY_PIN);
-    gpio_set_direction(RELAY_PIN, GPIO_MODE_OUTPUT);
-    gpio_set_level(RELAY_PIN, 0); // Ensure motor is OFF on boot
+    // gpio_reset_pin(RELAY_PIN);
+    // gpio_set_direction(RELAY_PIN, GPIO_MODE_OUTPUT);
+    // gpio_set_level(RELAY_PIN, 0); // Ensure motor is OFF on boot
+
+    // Relay 1 (GPIO 48) - Normally OFF
+    gpio_reset_pin(RELAY1_PIN);
+    gpio_set_direction(RELAY1_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(RELAY1_PIN, 1); 
+
+    // Relay 2 (GPIO 16) - Normally ON
+    gpio_reset_pin(RELAY2_PIN);
+    gpio_set_direction(RELAY2_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(RELAY2_PIN, 1);
 
     mac_init();     
     network_init(); 

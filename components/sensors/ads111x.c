@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2c.h"
+#include "esp_rom_sys.h"
 #include "ads111x.h"
 
 static const char *TAG = "ADS1115";
@@ -33,8 +34,8 @@ static const float PGA_VOLTAGE_MAPPING[] = {
 static esp_err_t i2c_write_register(ads1115_t *dev, uint8_t reg, uint16_t value) {
     uint8_t buffer[3];
     buffer[0] = reg;
-    buffer[1] = (value >> 8) & 0xFF; // MSB
-    buffer[2] = value & 0xFF;        // LSB
+    buffer[1] = (value >> 8) & 0xFF; 
+    buffer[2] = value & 0xFF;        
     
     return i2c_master_write_to_device(dev->i2c_port, dev->i2c_addr, buffer, 3, pdMS_TO_TICKS(100));
 }
@@ -55,7 +56,6 @@ esp_err_t ads1115_init(ads1115_t *dev, uint8_t i2c_port, uint8_t i2c_addr) {
     dev->i2c_port = i2c_port;
     dev->i2c_addr = i2c_addr;
     
-    // Quick ping to check if the device responds
     uint16_t dummy;
     esp_err_t err = i2c_read_register(dev, REG_POINTER_CONFIG, &dummy);
     if (err != ESP_OK) {
@@ -68,44 +68,35 @@ esp_err_t ads1115_init(ads1115_t *dev, uint8_t i2c_port, uint8_t i2c_addr) {
 }
 
 esp_err_t ads1115_read_single_shot(ads1115_t *dev, ads1115_mux_t mux, ads1115_pga_t pga, float *voltage_out) {
-    // 1. Construct the Configuration Register
     uint16_t config = 0x0000;
     
-    config |= (1 << 15);            // OS: Set to 1 to start a single-conversion
-    config |= (mux << 12);          // MUX: Set the channel(s)
-    config |= (pga << 9);           // PGA: Set the gain
-    config |= (1 << 8);             // MODE: Set to 1 for Single-Shot (Power down mode)
-    config |= (ADS1115_DR_128SPS << 5); // DR: 128 samples per second
-    config |= 0x0003;               // COMP: Disable comparator mode (Bits 4-0 = 11)
+    config |= (1 << 15);                // OS: Trigger single-conversion
+    config |= (mux << 12);              // MUX: Set channel
+    config |= (pga << 9);               // PGA: Set gain
+    config |= (1 << 8);                 // MODE: Single-Shot
+    config |= (ADS1115_DR_860SPS << 5); // DR: 860 SPS (High-speed for AC sampling)
+    config |= 0x0003;                   // COMP: Disable comparator mode
 
-    // 2. Write Config to trigger conversion
     esp_err_t err = i2c_write_register(dev, REG_POINTER_CONFIG, config);
     if (err != ESP_OK) return err;
 
-    // 3. Wait for conversion to complete
-    // At 128 SPS, 1 conversion takes ~7.8ms. We wait 10ms to be safe.
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    // 4. Poll the OS bit to guarantee completion (Optional but robust)
+    // High-Speed Hardware Polling (Non-RTOS Blocking)
+    // At 860 SPS, conversion takes ~1.2ms. We poll the OS bit every 100us.
     uint16_t current_config = 0;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 20; i++) {
+        esp_rom_delay_us(100); // Bare-metal microsecond delay
+        
         i2c_read_register(dev, REG_POINTER_CONFIG, &current_config);
         if (current_config & (1 << 15)) {
-            break; // OS bit is 1, conversion is done!
+            break; // OS bit flipped to 1, conversion complete
         }
-        vTaskDelay(pdMS_TO_TICKS(2));
     }
 
-    // 5. Read the Conversion Register
     uint16_t raw_adc = 0;
     err = i2c_read_register(dev, REG_POINTER_CONVERSION, &raw_adc);
     if (err != ESP_OK) return err;
 
-    // 6. Math: Convert 16-bit 2's complement to Voltage
-    // The ADS1115 outputs a signed 16-bit integer (-32768 to +32767)
     int16_t signed_adc = (int16_t)raw_adc;
-    
-    // Multiply by the specific LSB resolution of the chosen PGA setting
     *voltage_out = signed_adc * PGA_VOLTAGE_MAPPING[pga];
 
     return ESP_OK;

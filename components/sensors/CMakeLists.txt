@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "ads111x.c" "zmpt101b.c"
+    SRCS "ads111x.c" "zmpt101b.c" "soil_sensor.c" "DHT_temp.c" "DS18B20_temp.c"
     INCLUDE_DIRS "."
-    REQUIRES esp_adc driver esp_timer
+    REQUIRES driver esp_timer
 )
